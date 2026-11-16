@@ -10,7 +10,7 @@ import path from 'node:path';
 const DB_FILE = path.resolve(process.cwd(), 'rli_data.json');
 
 // Автоматический лицейский фильтр токсичности и ненормативной лексики (Кодекс этики РЛИ / стандарт платформы Zhaniza)
-const PROFANITY_REGEX = /п[ие1]д[аое]р|х[уy][йиеяё]|нах[уy]|бл[яе]|еб[аеёлоя]|муд[ао]|сук[аио]|член|шлюх|говн|дерьм|залуп|дроч|дебил|урод|даун|лошар|чмо|гандон|долбо|гнид|мраз|тварь|соси|отсос/i;
+const PROFANITY_REGEX = /п[ие1]д[аое]р|х[уy][йиеяё]|нах[уy]|бл[яе]|еб[аеёлоя]|муд[ао]|сук[аио]|член|шлюх|говн|дерьм|залуп|дроч|дебил|урод|даун|лошар|чмо|гандон|долбо|гнид|мраз|тварь|соси|отсос|нафи[кг]|отвали|заткнись|сам реши|пошел|пошёл|дурак|тупой|идиот|сдохни|пшел/i;
 
 const INITIAL_STATE = {
   users: [], // Только реальные зарегистрированные пользователи
@@ -528,19 +528,28 @@ export function createApiMiddleware() {
         const item = db.sosRequests.find(s => s.id === Number(sosId));
         if (item) {
           item.reported = true;
+          item.reportCount = (item.reportCount || 0) + 1;
           item.reportedReason = reason || 'Нарушение лицейской этики';
-          // Если жалоба на решение, сбрасываем статус решения и штрафуем нарушителя на 50 ELO
-          if (item.helper) {
-            const badHelper = db.users.find(u => u.name.toLowerCase() === item.helper.toLowerCase());
-            if (badHelper) {
-              badHelper.elo = Math.max(100, badHelper.elo - 50);
+          item.reporters = item.reporters || [];
+          if (reportedBy && !item.reporters.includes(reportedBy)) {
+            item.reporters.push(reportedBy);
+          }
+
+          // Автоматическая проверка: если текст явно токсичен по фильтру или 3+ жалобы
+          const isDefinitelyToxic = PROFANITY_REGEX.test(item.explanation || '');
+          if (isDefinitelyToxic || item.reportCount >= 3) {
+            if (item.helper) {
+              const badHelper = db.users.find(u => u.name.toLowerCase() === item.helper.toLowerCase());
+              if (badHelper) {
+                badHelper.elo = Math.max(100, badHelper.elo - 30);
+              }
+              item.status = 'open';
+              item.explanation = 'Ответ скрыт автомодерацией за нарушение Лицейского кодекса';
+              item.helper = null;
             }
-            item.status = 'open';
-            item.explanation = 'Ответ скрыт модерацией за нарушение Лицейского кодекса';
-            item.helper = null;
           }
           saveDb(db);
-          return res.end(JSON.stringify({ ok: true, message: 'Жалоба зарегистрирована, контент скрыт' }));
+          return res.end(JSON.stringify({ ok: true, message: 'Жалоба зарегистрирована и отправлена на проверку модераторам', item }));
         }
         return res.end(JSON.stringify({ error: 'Запрос не найден' }));
       }

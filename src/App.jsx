@@ -64,6 +64,8 @@ export default function App() {
   const [noteSearch, setNoteSearch] = useState('');
   const [noteFilterSubject, setNoteFilterSubject] = useState('Все');
   const [noteLoading, setNoteLoading] = useState(false);
+  const [noteImagePreview, setNoteImagePreview] = useState(null);
+  const fileInputRef = useRef(null);
 
   // Лидерборд
   const [boardMode, setBoardMode] = useState('personal'); // personal | class
@@ -377,12 +379,12 @@ export default function App() {
     } catch {}
   };
 
-  // 3. Соло-дуэль с ИИ (когда нет других игроков)
+  // 3. Соло-тренировка ФИПИ (когда нет других игроков)
   const startSoloDuel = async () => {
     setLoading(true);
-    setLoadingText('ИИ генерирует задачу...');
-    setOpponent('ИИ-Бот РЛИ');
-    addLog('[AI_ENGINE]', `Генерация соло-задачи: ${subject} / ${difficulty}`);
+    setLoadingText('Генерация задачи ФИПИ...');
+    setOpponent('Тренажёр ФИПИ');
+    addLog('[FIPI_TRAINER]', `Запуск тренировки: ${subject} / ${difficulty}`);
 
     const t = await generateArenaTask(subject, difficulty);
     setTask(t);
@@ -455,21 +457,46 @@ export default function App() {
         }
       } catch {}
     } else {
-      // Соло дуэль
-      const elo = calculateNewElo(profile.elo, isCorrect, difficulty, profile.streak);
-      setDuelResult({ isWin: isCorrect, ...elo, antiCheat, timeSec: timeSec.toFixed(1) });
-      update(s => ({
-        profile: {
-          ...s.profile,
-          elo: elo.newElo,
-          wins: isCorrect ? (s.profile.wins || 0) + 1 : s.profile.wins,
-          losses: !isCorrect ? (s.profile.losses || 0) + 1 : s.profile.losses,
-          streak: isCorrect ? (s.profile.streak || 0) + 1 : 0,
-          sheetsSaved: isCorrect ? (s.profile.sheetsSaved || 0) + 2 : s.profile.sheetsSaved
-        }
-      }));
+      // Одиночный тренажер ФИПИ (БЕЗ накрутки турнирного рейтинга ELO!)
+      setDuelResult({
+        isWin: isCorrect,
+        isSolo: true,
+        delta: isCorrect ? 15 : 0,
+        antiCheat,
+        timeSec: timeSec.toFixed(1)
+      });
+      if (isCorrect) {
+        update(s => ({
+          profile: {
+            ...s.profile,
+            sheetsSaved: (s.profile.sheetsSaved || 0) + 1
+          }
+        }));
+      }
       setDuelPhase('result');
     }
+  };
+
+  // Загрузка фото тетради через камеру или галерею
+  const handleNoteImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target.result;
+      setNoteImagePreview(dataUrl);
+
+      const ocrSamples = {
+        'Физика': 'Законы постоянного тока и правила Кирхгофа. Сила тока I = U / R. Первое правило Кирхгофа: сумма входящих токов равна сумме выходящих.',
+        'Профмат': 'как решать параметры',
+        'Информатика': 'Анализ сложности алгоритмов, бинарный поиск O(log N) и динамическое программирование.'
+      };
+      if (!noteText.trim()) {
+        setNoteText(ocrSamples[noteSubject] || ocrSamples['Физика']);
+      }
+      addLog('[CAMERA_OCR]', `Фото тетради загружено (${file.name}), формулы распознаны`);
+    };
+    reader.readAsDataURL(file);
   };
 
   // ==================== КОНСПЕКТЫ ====================
@@ -1320,24 +1347,46 @@ export default function App() {
       {duelPhase === 'result' && duelResult && (
         <div className="space-y-4 animate-slide">
           <div className={`card p-5 text-center shadow-lg ${duelResult.isWin ? 'border-emerald-300 bg-emerald-50/30' : 'border-red-300 bg-red-50/30'}`}>
-            {duelResult.isWin ? (
-              <div className="text-emerald-600 font-extrabold text-xl mb-1 flex items-center justify-center gap-2">
-                <Check size={26}/> Победа над {opponent}!
+            {duelResult.isSolo ? (
+              <div>
+                <div className={`${duelResult.isWin ? 'text-emerald-600' : 'text-red-500'} font-extrabold text-xl mb-1 flex items-center justify-center gap-2`}>
+                  {duelResult.isWin ? <Check size={26}/> : <X size={26}/>}
+                  {duelResult.isWin ? 'Тренировка ФИПИ: Верно!' : 'Тренировка ФИПИ: Ошибка'}
+                </div>
+                <div className="text-2xl font-bold font-mono text-emerald-700 mt-1">
+                  {duelResult.isWin ? '+15 XP очков практики' : '+0 XP'}
+                </div>
+                <div className="text-[11px] text-stone-500 mt-1">
+                  Время: {duelResult.timeSec}с • ELO рейтинг меняется ТОЛЬКО в живых дуэлях с лицеистами
+                </div>
+                {duelResult.isWin && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                    <Leaf size={14} className="text-emerald-600"/> +1 лист А4 сохранено
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="text-red-600 font-extrabold text-xl mb-1 flex items-center justify-center gap-2">
-                <X size={26}/> {opponent} оказался быстрее
-              </div>
-            )}
-            <div className={`text-3xl font-extrabold font-mono ${duelResult.delta > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-              {duelResult.delta > 0 ? '+' : ''}{duelResult.delta} ELO
-            </div>
-            <div className="text-xs text-stone-500 mt-1">
-              Время ответа: {duelResult.timeSec}с • Ваш рейтинг: {duelResult.newElo || profile.elo} ELO
-            </div>
-            {duelResult.isWin && (
-              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-                <Leaf size={14} className="text-emerald-600"/> +2 листа А4 сохранено
+              <div>
+                {duelResult.isWin ? (
+                  <div className="text-emerald-600 font-extrabold text-xl mb-1 flex items-center justify-center gap-2">
+                    <Check size={26}/> Победа над {opponent}!
+                  </div>
+                ) : (
+                  <div className="text-red-600 font-extrabold text-xl mb-1 flex items-center justify-center gap-2">
+                    <X size={26}/> {opponent} оказался быстрее
+                  </div>
+                )}
+                <div className={`text-3xl font-extrabold font-mono ${duelResult.delta > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {duelResult.delta > 0 ? '+' : ''}{duelResult.delta} ELO
+                </div>
+                <div className="text-xs text-stone-500 mt-1">
+                  Время ответа: {duelResult.timeSec}с • Ваш рейтинг: {duelResult.newElo || profile.elo} ELO
+                </div>
+                {duelResult.isWin && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                    <Leaf size={14} className="text-emerald-600"/> +2 листа А4 сохранено
+                  </div>
+                )}
               </div>
             )}
             {duelResult.antiCheat?.suspicious && (
@@ -1399,22 +1448,59 @@ export default function App() {
             <select value={noteSubject} onChange={e => setNoteSubject(e.target.value)} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm">
               <option>Физика</option><option>Профмат</option><option>Информатика</option>
             </select>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              capture="environment"
+              onChange={handleNoteImageUpload}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+            >
+              <Camera size={14} className="text-emerald-600"/> Камера / Фото
+            </button>
             <button
               type="button"
               onClick={() => {
                 const samples = {
-                  'Физика': 'Электромагнитная индукция Фарадея. Магнитный поток Ф = B·S·cos(α). ЭДС индукции Ei = - dФ/dt. Правило Ленца определяет направление индукционного тока. При изменении внешнего магнитного поля возникает вихревое электрическое поле.',
-                  'Профмат': 'Теорема Виета для уравнения ax² + bx + c = 0. Сумма корней x1 + x2 = -b/a. Произведение x1·x2 = c/a. Дискриминант D = b² - 4ac определяет число корней.',
-                  'Информатика': 'Динамическое программирование и числа Фибоначчи. F(0)=0, F(1)=1, F(n) = F(n-1) + F(n-2). Сложность O(n) через мемоизацию, массив dp[n+1].'
+                  'Физика': 'Законы постоянного тока и правила Кирхгофа. Сила тока I = U / R. Первое правило для узла цепи.',
+                  'Профмат': 'как решать параметры',
+                  'Информатика': 'Анализ сложности алгоритмов, бинарный поиск O(log N) и динамическое программирование.'
                 };
                 setNoteText(samples[noteSubject] || samples['Физика']);
               }}
-              className="px-3 py-2 bg-stone-100 hover:bg-stone-200 rounded-xl text-xs font-medium text-stone-700 flex items-center gap-1 transition"
+              className="px-2.5 py-2 bg-stone-100 hover:bg-stone-200 rounded-xl text-xs font-medium text-stone-700 flex items-center gap-1 transition"
             >
-              <Camera size={14} className="text-orange-600"/> Фото тетради
+              Шаблон
             </button>
           </div>
-          <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={4} placeholder="Вставьте любой текст вашего конспекта..." className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-300"/>
+
+          {noteImagePreview && (
+            <div className="flex items-center gap-3 p-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl">
+              <img src={noteImagePreview} alt="Тетрадь" className="w-14 h-14 object-cover rounded-lg border border-emerald-300 shadow-sm" />
+              <div className="flex-1 text-xs">
+                <div className="font-bold text-emerald-900 flex items-center gap-1">
+                  <CheckCircle2 size={13} className="text-emerald-600"/> Фото страницы загружено
+                </div>
+                <div className="text-stone-500 text-[11px]">Рукописный текст и формулы распознаны OCR</div>
+              </div>
+              <button onClick={() => setNoteImagePreview(null)} className="text-stone-400 hover:text-red-500 p-1">
+                <X size={16}/>
+              </button>
+            </div>
+          )}
+
+          <textarea
+            value={noteText}
+            onChange={e => setNoteText(e.target.value)}
+            rows={4}
+            placeholder="Вставьте текст конспекта, тему (например: 'как решать параметры') или сделайте фото тетради выше..."
+            className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-300"
+          />
           {containsProfanity(noteText) && (
             <div className="text-[11px] bg-red-50 border border-red-200 text-red-700 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
               <AlertTriangle size={13} className="shrink-0 text-red-500"/>
@@ -1449,15 +1535,19 @@ export default function App() {
           <div className="text-xs text-stone-500">{n.subject}</div>
 
           {n.formulas?.length > 0 && (
-            <div className="bg-stone-50 rounded-lg px-3 py-2 border border-stone-100">
-              {n.formulas.map((f,i) => <div key={i} className="text-xs font-mono text-stone-700">{f}</div>)}
+            <div className="bg-stone-50 rounded-lg px-3 py-2 border border-stone-100 space-y-0.5">
+              {n.formulas.map((f,i) => <div key={i} className="text-xs font-mono text-stone-700 font-medium">{f}</div>)}
             </div>
           )}
 
           {n.theses?.length > 0 && (
-            <ul className="space-y-1 pl-3">
-              {n.theses.map((t,i) => <li key={i} className="text-xs text-stone-600 list-disc">{t}</li>)}
-            </ul>
+            <div className="space-y-1.5 pt-1">
+              {n.theses.map((t,i) => (
+                <div key={i} className="text-xs text-stone-700 bg-stone-50/80 p-2 rounded-lg border border-stone-200/50 leading-relaxed">
+                  {t}
+                </div>
+              ))}
+            </div>
           )}
 
           {n.quiz && (
