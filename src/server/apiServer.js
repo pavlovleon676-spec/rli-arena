@@ -10,7 +10,7 @@ import path from 'node:path';
 const DB_FILE = path.resolve(process.cwd(), 'rli_data.json');
 
 // Автоматический лицейский фильтр токсичности и ненормативной лексики (Кодекс этики РЛИ / стандарт платформы Zhaniza)
-const PROFANITY_REGEX = /п[ие1]д[аое]р|х[уy][йиеяё]|нах[уy]|бл[яе]|еб[аеёлоя]|муд[ао]|сук[аио]|член|шлюх|говн|дерьм|залуп|дроч|дебил|урод|даун|лошар|чмо|гандон|долбо|гнид|мраз|тварь|соси|отсос|нафи[кг]|отвали|заткнись|сам реши|пошел|пошёл|дурак|тупой|идиот|сдохни|пшел/i;
+const PROFANITY_REGEX = /п[ие1]д[аое]р|х[уy][йиеяё]|нах[уy]|бл[яе]|еб[аеёлоя]|муд[ао]|сук[аио]|член|шлюх|говн|дерьм|залуп|дроч|дебил|урод|даун|лошар|чмо|гандон|долбо|гнид|мраз|тварь|соси|отсос|нафи[кг]|отвали|заткнись|реш[аеив]+й\s*сам|сам[а-я\s]*реш|пошел|пошёл|дурак|тупой|идиот|сдохни|пшел/i;
 
 const INITIAL_STATE = {
   users: [], // Только реальные зарегистрированные пользователи
@@ -463,7 +463,7 @@ export function createApiMiddleware() {
       }
 
       // ============================================================
-      // 9. СОС-ПОМОЩЬ С ОБЪЯСНЕНИЕМ (POST /api/sos/help)
+      // 9. СОС-ПОМОЩЬ: ДОБАВЛЕНИЕ ОТВЕТА В ТРЕД (POST /api/sos/help)
       // ============================================================
       if (pathname === '/api/sos/help' && req.method === 'POST') {
         const { sosId, helper, explanation } = payload;
@@ -472,28 +472,64 @@ export function createApiMiddleware() {
         if (PROFANITY_REGEX.test(textToCheck)) {
           res.statusCode = 400;
           return res.end(JSON.stringify({
-            error: 'Объяснение содержит недопустимую лексику. Пожалуйста, соблюдайте Лицейский кодекс этики РЛИ.'
+            error: 'Ответ содержит некорректные выражения или отказ в помощи. Соблюдайте Лицейский кодекс этики РЛИ.'
           }));
         }
 
         const item = db.sosRequests.find(s => s.id === Number(sosId));
         if (item) {
-          item.status = 'helped';
-          item.helper = helper;
-          item.explanation = explanation || 'Решение предоставлено лицеистом';
-
-          const helperUser = db.users.find(u => u.name.toLowerCase() === helper.toLowerCase());
-          if (helperUser) {
-            helperUser.elo += 30;
-            helperUser.sheetsSaved += 5;
-            const cb = db.classBoard.find(c => c.name === helperUser.profileGroup);
-            if (cb) cb.elo += 30;
+          item.answers = item.answers || [];
+          if (item.explanation && item.helper && item.answers.length === 0) {
+            item.answers.push({
+              id: Date.now() - 1000,
+              helper: item.helper,
+              text: item.explanation,
+              createdAt: Date.now() - 1000,
+              isAccepted: true,
+              reported: false
+            });
           }
 
+          const newAnswer = {
+            id: Date.now(),
+            helper: helper || 'Лицеист',
+            text: textToCheck,
+            createdAt: Date.now(),
+            isAccepted: false,
+            reported: false
+          };
+
+          item.answers.push(newAnswer);
           saveDb(db);
-          return res.end(JSON.stringify({ ok: true, item }));
+          return res.end(JSON.stringify({ ok: true, item, answer: newAnswer }));
         }
         return res.end(JSON.stringify({ error: 'Запрос помощи не найден' }));
+      }
+
+      // СОС-ЗАПРОС: ПРИНЯТЬ РЕШЕНИЕ (POST /api/sos/accept)
+      if (pathname === '/api/sos/accept' && req.method === 'POST') {
+        const { sosId, answerId } = payload;
+        const item = db.sosRequests.find(s => s.id === Number(sosId));
+        if (item && item.answers) {
+          const ans = item.answers.find(a => a.id === Number(answerId));
+          if (ans && !ans.isAccepted) {
+            ans.isAccepted = true;
+            item.status = 'helped';
+            item.helper = ans.helper;
+            item.explanation = ans.text;
+
+            const helperUser = db.users.find(u => u.name.toLowerCase() === ans.helper.toLowerCase());
+            if (helperUser) {
+              helperUser.elo += (item.reward || 30);
+              helperUser.sheetsSaved += 5;
+              const cb = db.classBoard.find(c => c.name === helperUser.profileGroup);
+              if (cb) cb.elo += (item.reward || 30);
+            }
+            saveDb(db);
+            return res.end(JSON.stringify({ ok: true, item }));
+          }
+        }
+        return res.end(JSON.stringify({ error: 'Ответ не найден' }));
       }
 
       // СОС-ЗАПРОС: СОЗДАНИЕ (POST /api/sos)
@@ -514,8 +550,7 @@ export function createApiMiddleware() {
           author: payload.author || 'Лицеист РЛИ',
           reward: 30,
           status: 'open',
-          explanation: null,
-          helper: null
+          answers: []
         };
         db.sosRequests.unshift(newSos);
         saveDb(db);
@@ -524,32 +559,63 @@ export function createApiMiddleware() {
 
       // СОС-ЗАПРОС: ЖАЛОБА / МОДЕРАЦИЯ (POST /api/sos/report)
       if (pathname === '/api/sos/report' && req.method === 'POST') {
-        const { sosId, reportedBy, reason } = payload;
+        const { sosId, answerId, reportedBy, reason } = payload;
         const item = db.sosRequests.find(s => s.id === Number(sosId));
         if (item) {
-          item.reported = true;
-          item.reportCount = (item.reportCount || 0) + 1;
-          item.reportedReason = reason || 'Нарушение лицейской этики';
-          item.reporters = item.reporters || [];
-          if (reportedBy && !item.reporters.includes(reportedBy)) {
-            item.reporters.push(reportedBy);
+          item.answers = item.answers || [];
+          let ans = item.answers.find(a => a.id === Number(answerId));
+          if (!ans && item.explanation) {
+            ans = { id: 1, helper: item.helper, text: item.explanation, reported: false };
+            item.answers.push(ans);
           }
 
-          // Автоматическая проверка: если текст явно токсичен по фильтру или 3+ жалобы
-          const isDefinitelyToxic = PROFANITY_REGEX.test(item.explanation || '');
-          if (isDefinitelyToxic || item.reportCount >= 3) {
-            if (item.helper) {
-              const badHelper = db.users.find(u => u.name.toLowerCase() === item.helper.toLowerCase());
-              if (badHelper) {
-                badHelper.elo = Math.max(100, badHelper.elo - 30);
+          if (ans) {
+            ans.reported = true;
+            ans.reportedReason = reason || 'Нарушение лицейской этики';
+            ans.reportedBy = ans.reportedBy || [];
+            if (reportedBy && !ans.reportedBy.includes(reportedBy)) {
+              ans.reportedBy.push(reportedBy);
+            }
+
+            if (PROFANITY_REGEX.test(ans.text || '') || ans.reportedBy.length >= 3) {
+              ans.toxicConfirmed = true;
+              ans.text = 'Ответ скрыт автомодерацией за нарушение этики';
+              const badUser = db.users.find(u => u.name.toLowerCase() === (ans.helper || '').toLowerCase());
+              if (badUser) {
+                badUser.elo = Math.max(100, badUser.elo - 30);
               }
-              item.status = 'open';
-              item.explanation = 'Ответ скрыт автомодерацией за нарушение Лицейского кодекса';
-              item.helper = null;
+            }
+          }
+          item.reported = true;
+          saveDb(db);
+          return res.end(JSON.stringify({ ok: true, message: 'Жалоба зарегистрирована и отправлена на проверку модераторам', item }));
+        }
+        return res.end(JSON.stringify({ error: 'Запрос не найден' }));
+      }
+
+      // СОС-ЗАПРОС: АДМИН-МОДЕРАЦИЯ (POST /api/sos/moderate)
+      if (pathname === '/api/sos/moderate' && req.method === 'POST') {
+        const { sosId, answerId, action } = payload; // action: 'approve' | 'delete'
+        const item = db.sosRequests.find(s => s.id === Number(sosId));
+        if (item && item.answers) {
+          const ans = item.answers.find(a => a.id === Number(answerId));
+          if (ans) {
+            if (action === 'delete') {
+              ans.text = 'Ответ удален Советом Лицея за нарушение кодекса';
+              ans.toxicConfirmed = true;
+              ans.reported = false;
+              const badUser = db.users.find(u => u.name.toLowerCase() === (ans.helper || '').toLowerCase());
+              if (badUser) {
+                badUser.elo = Math.max(100, badUser.elo - 30);
+              }
+            } else if (action === 'approve') {
+              ans.reported = false;
+              ans.reportedReason = null;
+              ans.reportedBy = [];
             }
           }
           saveDb(db);
-          return res.end(JSON.stringify({ ok: true, message: 'Жалоба зарегистрирована и отправлена на проверку модераторам', item }));
+          return res.end(JSON.stringify({ ok: true, item }));
         }
         return res.end(JSON.stringify({ error: 'Запрос не найден' }));
       }

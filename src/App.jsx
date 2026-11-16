@@ -13,7 +13,8 @@ import {
   RotateCcw, FileText, MessageCircle, AlertTriangle, Award,
   Play, TrendingUp, Activity, BookMarked, Lightbulb, Camera, Upload,
   Trash2, UserPlus, UserCheck, User, LogOut, QrCode, Smartphone,
-  CheckCircle2, Bell, Radio, Copy, Share2, Flag
+  CheckCircle2, Bell, Radio, Copy, Share2, Flag, Sun, Moon, ShieldCheck,
+  Image as ImageIcon
 } from 'lucide-react';
 import { calculateNewElo, checkAntiCheat, calculateEcoMetrics, getRankTitle, getWinRate, getUserLevel, containsProfanity } from './engine/coreEngine';
 import { generateArenaTask, digitizeStudentNote, getApiKey, testGeminiPing, saveApiKey } from './services/aiService';
@@ -23,6 +24,17 @@ export default function App() {
   const [tab, setTab] = useState(0);
   const [state, setState] = useState(() => loadState());
   const { profile, users = [], leaderboard = [], classBoard = [], notes = [], sosRequests = [] } = state;
+
+  // Тема оформления (Тёмная 🌙 / Светлая ☀️)
+  const [theme, setTheme] = useState(() => localStorage.getItem('RLI_THEME') || 'dark');
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    localStorage.setItem('RLI_THEME', next);
+  };
+
+  // Права модератора (Совет Лицея РЛИ)
+  const isAdmin = profile?.name?.trim().toLowerCase() === 'леонид' || profile?.name?.trim().toLowerCase() === 'admin';
 
   // Сетевой онлайн и уведомления
   const [onlineUsers, setOnlineUsers] = useState([]);
@@ -59,12 +71,17 @@ export default function App() {
 
   // Конспекты
   const [showNoteModal, setShowNoteModal] = useState(false);
+  const [noteTitle, setNoteTitle] = useState('');
   const [noteText, setNoteText] = useState('');
   const [noteSubject, setNoteSubject] = useState('Физика');
+  const [noteCategory, setNoteCategory] = useState('Все');
+  const [noteCategoryFilter, setNoteCategoryFilter] = useState('Все');
+  const [noteIsPublic, setNoteIsPublic] = useState(true);
   const [noteSearch, setNoteSearch] = useState('');
   const [noteFilterSubject, setNoteFilterSubject] = useState('Все');
   const [noteLoading, setNoteLoading] = useState(false);
   const [noteImagePreview, setNoteImagePreview] = useState(null);
+  const [notePhotoModal, setNotePhotoModal] = useState(null);
   const fileInputRef = useRef(null);
 
   // Лидерборд
@@ -494,7 +511,10 @@ export default function App() {
       if (!noteText.trim()) {
         setNoteText(ocrSamples[noteSubject] || ocrSamples['Физика']);
       }
-      addLog('[CAMERA_OCR]', `Фото тетради загружено (${file.name}), формулы распознаны`);
+      if (!noteTitle.trim()) {
+        setNoteTitle(`Конспект из тетради (${noteSubject})`);
+      }
+      addLog('[CAMERA_OCR]', `Фото тетради загружено (${file.name}), формулы оцифрованы`);
     };
     reader.readAsDataURL(file);
   };
@@ -502,14 +522,23 @@ export default function App() {
   // ==================== КОНСПЕКТЫ ====================
 
   const createNote = async () => {
-    if (!noteText.trim()) return;
-    if (containsProfanity(noteText)) {
+    if (!noteText.trim() && !noteImagePreview) return;
+    if (containsProfanity(noteText) || containsProfanity(noteTitle)) {
       alert('Текст конспекта содержит недопустимую лексику. Пожалуйста, соблюдайте Лицейский кодекс этики.');
       return;
     }
     setNoteLoading(true);
-    const digitized = await digitizeStudentNote(noteText, noteSubject);
-    const newNote = { ...digitized, id: Date.now(), quizDone: false };
+    const digitized = await digitizeStudentNote(noteText || noteTitle || 'Учебный конспект', noteSubject);
+    const newNote = {
+      ...digitized,
+      id: Date.now(),
+      title: noteTitle.trim() || digitized.title || 'Конспект РЛИ',
+      category: noteCategory || 'Все',
+      isPublic: noteIsPublic,
+      image: noteImagePreview || null,
+      author: profile?.name || 'Лицеист',
+      quizDone: false
+    };
 
     try {
       const resp = await fetch('/api/notes', {
@@ -531,6 +560,8 @@ export default function App() {
     }));
 
     setNoteText('');
+    setNoteTitle('');
+    setNoteImagePreview(null);
     setShowNoteModal(false);
     setNoteLoading(false);
   };
@@ -554,14 +585,13 @@ export default function App() {
       }),
       profile: {
         ...s.profile,
-        elo: s.profile.elo + 15,
         sheetsSaved: (s.profile.sheetsSaved || 0) + 5
       }
     }));
-    addLog('[ELO_CORE]', `+15 ELO, +5 листов (квиз конспекта)`);
+    addLog('[NOTES_PRACTICE]', `Мини-квиз конспекта пройден (+5 листов бумаги)`);
   };
 
-  // ==================== SOS-МЕНТОРСТВО (С ОКНОМ ОТВЕТА И МОДЕРАЦИЕЙ) ====================
+  // ==================== SOS-МЕНТОРСТВО (ОТКРЫТЫЙ ТРЕД И МОДЕРАЦИЯ) ====================
 
   const addSos = async () => {
     if (!sosText.trim()) return;
@@ -603,11 +633,11 @@ export default function App() {
     setSosHelpExplanation('');
   };
 
-  // Отправка решения на SOS
+  // Отправка ответа в тред помощи (без преждевременного начисления ELO)
   const submitSosHelp = async () => {
     if (!sosHelpTarget || !sosHelpExplanation.trim()) return;
     if (containsProfanity(sosHelpExplanation)) {
-      alert('Объяснение содержит недопустимую лексику. Пожалуйста, соблюдайте Лицейский кодекс этики РЛИ.');
+      alert('Ответ содержит недопустимую лексику или отказ в помощи ("решай сам" и др.). Пожалуйста, соблюдайте Лицейский кодекс этики РЛИ.');
       return;
     }
     setSosHelpSubmitting(true);
@@ -623,29 +653,147 @@ export default function App() {
         })
       });
       const data = await resp.json();
-      if (data.ok) {
+      if (resp.ok && data.ok) {
+        const newAns = data.answer || {
+          id: Date.now(),
+          helper: profile.name,
+          text: sosHelpExplanation.trim(),
+          createdAt: Date.now(),
+          isAccepted: false,
+          reported: false
+        };
         update(s => ({
-          sosRequests: s.sosRequests.map(r =>
-            r.id === sosHelpTarget.id
-              ? { ...r, status: 'helped', helper: s.profile.name, explanation: sosHelpExplanation.trim() }
-              : r
-          ),
-          profile: {
-            ...s.profile,
-            elo: s.profile.elo + 30,
-            sheetsSaved: (s.profile.sheetsSaved || 0) + 5
-          }
+          sosRequests: s.sosRequests.map(r => {
+            if (r.id !== sosHelpTarget.id) return r;
+            const existingAnswers = r.answers || [];
+            return {
+              ...r,
+              answers: [...existingAnswers, newAns]
+            };
+          })
         }));
-        addLog('[SOS_MENTOR]', `Помощь оказана лицеисту ${sosHelpTarget.author} (+30 ELO)`);
+        addLog('[SOS_THREAD]', `Ответ добавлен в тред #${sosHelpTarget.id} от ${profile.name}`);
         setSosHelpTarget(null);
         setSosHelpExplanation('');
       } else {
-        alert(data.error || 'Ошибка отправки помощи');
+        alert(data.error || 'Ошибка отправки ответа');
       }
     } catch (e) {
       alert('Ошибка отправки помощи: ' + e.message);
     }
     setSosHelpSubmitting(false);
+  };
+
+  // Автор принимает ответ (+30 ELO и +5 листов хелперу)
+  const acceptSosAnswer = async (sosId, answerId) => {
+    try {
+      const resp = await fetch('/api/sos/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sosId, answerId })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        update(s => {
+          let helperName = null;
+          const updatedSos = s.sosRequests.map(r => {
+            if (r.id !== sosId) return r;
+            const updatedAnswers = (r.answers || []).map(a => {
+              if (a.id === answerId) {
+                helperName = a.helper;
+                return { ...a, isAccepted: true };
+              }
+              return a;
+            });
+            return {
+              ...r,
+              status: 'helped',
+              helper: helperName || r.helper,
+              explanation: updatedAnswers.find(a => a.id === answerId)?.text || r.explanation,
+              answers: updatedAnswers
+            };
+          });
+
+          // Если текущий юзер был хелпером, ему начисляются очки
+          let updatedProfile = s.profile;
+          if (helperName && helperName.toLowerCase() === s.profile?.name?.toLowerCase()) {
+            updatedProfile = {
+              ...s.profile,
+              elo: s.profile.elo + 30,
+              sheetsSaved: (s.profile.sheetsSaved || 0) + 5
+            };
+          }
+          return { sosRequests: updatedSos, profile: updatedProfile };
+        });
+        addLog('[SOS_ACCEPT]', `Решение принято! Хелпер получил +30 ELO`);
+      } else {
+        alert(data.error || 'Ошибка принятия ответа');
+      }
+    } catch (e) {
+      alert('Ошибка: ' + e.message);
+    }
+  };
+
+  // Пожаловаться на ответ (отправка на модерацию Совету Лицея, защита от ложного удаления)
+  const reportSosAnswer = async (sosId, answerId) => {
+    if (!window.confirm('Пожаловаться на этот ответ? Он будет передан на рассмотрение Совету Лицея. При подтверждении нарушения автор получит штраф рейтинга.')) return;
+    try {
+      const resp = await fetch('/api/sos/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sosId,
+          answerId,
+          reportedBy: profile.name,
+          reason: 'Нарушение Лицейского кодекса этики'
+        })
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        update(s => ({
+          sosRequests: s.sosRequests.map(r => {
+            if (r.id !== sosId) return r;
+            const updatedAnswers = (r.answers || []).map(a =>
+              a.id === answerId ? { ...a, reported: true } : a
+            );
+            return { ...r, answers: updatedAnswers };
+          })
+        }));
+        alert('Жалоба зарегистрирована и отправлена на проверку Совету Лицея.');
+        addLog('[MODERATION]', `Жалоба на ответ в SOS #${sosId}`);
+      }
+    } catch (e) {
+      alert('Ошибка отправки жалобы');
+    }
+  };
+
+  // Модерация Советом Лицея (Админ)
+  const moderateSosAnswer = async (sosId, answerId, action) => {
+    try {
+      const resp = await fetch('/api/sos/moderate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sosId, answerId, action })
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        update(s => ({
+          sosRequests: s.sosRequests.map(r => {
+            if (r.id !== sosId) return r;
+            const updatedAnswers = (r.answers || []).map(a => {
+              if (a.id !== answerId) return a;
+              if (action === 'delete') {
+                return { ...a, text: 'Ответ удален Советом Лицея за нарушение Кодекса этики РЛИ', reported: false, toxicConfirmed: true };
+              } else {
+                return { ...a, reported: false };
+              }
+            });
+            return { ...r, answers: updatedAnswers };
+          })
+        }));
+        addLog('[ADMIN_MODERATION]', `Модерация ответа #${answerId}: ${action}`);
+      }
+    } catch (e) {}
   };
 
   const deleteSos = async (id) => {
@@ -656,36 +804,6 @@ export default function App() {
       sosRequests: s.sosRequests.filter(r => r.id !== id)
     }));
     addLog('[SOS]', 'Запрос помощи удален');
-  };
-
-  // Пожаловаться на ответ ментора / оскорбление (как в Zhaniza)
-  const reportSos = async (sosId) => {
-    if (!window.confirm('Пожаловаться на этот ответ? Некорректный контент будет скрыт автомодерацией, а нарушитель получит штраф рейтинга.')) return;
-    try {
-      const resp = await fetch('/api/sos/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sosId,
-          reportedBy: profile.name,
-          reason: 'Нарушение Лицейского кодекса этики'
-        })
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        update(s => ({
-          sosRequests: s.sosRequests.map(r =>
-            r.id === sosId
-              ? { ...r, status: 'open', explanation: 'Ответ скрыт модерацией за нарушение этики', helper: null }
-              : r
-          )
-        }));
-        alert('Жалоба принята. Ответ скрыт автомодерацией, нарушителю начислен штраф рейтинга.');
-        addLog('[MODERATION]', `Ответ на SOS #${sosId} скрыт по жалобе`);
-      }
-    } catch (e) {
-      alert('Ошибка отправки жалобы');
-    }
   };
 
   // ==================== СИСТЕМА ====================
@@ -755,9 +873,16 @@ export default function App() {
   });
 
   const filteredNotes = notes.filter(n => {
-    const matchesSearch = !noteSearch || n.title?.toLowerCase().includes(noteSearch.toLowerCase()) || n.subject?.toLowerCase().includes(noteSearch.toLowerCase());
+    const q = noteSearch.toLowerCase();
+    const matchesSearch = !noteSearch ||
+      n.title?.toLowerCase().includes(q) ||
+      n.subject?.toLowerCase().includes(q) ||
+      (n.category && n.category.toLowerCase().includes(q)) ||
+      n.theses?.some(t => t.toLowerCase().includes(q)) ||
+      n.formulas?.some(f => f.toLowerCase().includes(q));
     const matchesSubject = noteFilterSubject === 'Все' || n.subject === noteFilterSubject;
-    return matchesSearch && matchesSubject;
+    const matchesCategory = noteCategoryFilter === 'Все' || n.category === noteCategoryFilter;
+    return matchesSearch && matchesSubject && matchesCategory;
   });
 
   // ============================================================
@@ -875,6 +1000,18 @@ export default function App() {
             >
               <QrCode size={16}/>
             </button>
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 bg-white border border-stone-200 rounded-xl text-stone-700 hover:text-amber-500 transition shadow-sm"
+              title={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+            >
+              {theme === 'dark' ? <Sun size={16} className="text-amber-400"/> : <Moon size={16} className="text-stone-600"/>}
+            </button>
+            {isAdmin && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/30 flex items-center gap-1 shadow-sm">
+                <ShieldCheck size={12}/> Совет РЛИ
+              </span>
+            )}
           </div>
           <div className="flex gap-2 mt-1">
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
@@ -1313,12 +1450,7 @@ export default function App() {
 
           <div className="card p-5 shadow-lg border-stone-200">
             <div className="text-xs text-stone-500 mb-1">{task.topic}</div>
-            <div className="font-semibold text-sm mb-2 leading-relaxed">{task.question}</div>
-            {task.formula && (
-              <div className="text-xs bg-stone-100 rounded-lg px-3 py-1.5 font-mono text-stone-600 mb-3 border border-stone-200">
-                {task.formula}
-              </div>
-            )}
+            <div className="font-semibold text-sm mb-3 leading-relaxed">{task.question}</div>
             <div className="space-y-2">
               {task.options.map((opt, i) => (
                 <button
@@ -1396,8 +1528,15 @@ export default function App() {
             )}
           </div>
 
-          <div className="card p-4 space-y-1">
-            <div className="text-xs font-semibold text-stone-500 flex items-center gap-1"><Lightbulb size={14} className="text-amber-500"/> Разбор решения от ИИ</div>
+          <div className="card p-4 space-y-2">
+            <div className="text-xs font-semibold text-stone-500 flex items-center gap-1">
+              <Lightbulb size={14} className="text-amber-500"/> Разбор решения от ИИ (ФИПИ)
+            </div>
+            {task.formula && (
+              <div className="text-xs bg-stone-100 rounded-lg px-3 py-2 font-mono text-stone-700 font-semibold border border-stone-200">
+                Ключевая формула: {task.formula}
+              </div>
+            )}
             <div className="text-sm text-stone-800 leading-relaxed">{task.explanation}</div>
           </div>
 
@@ -1441,66 +1580,126 @@ export default function App() {
         ))}
       </div>
 
+      {/* Быстрые фильтры разделов */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {['Все', 'Параметры', 'Механика', 'Электродинамика', 'Алгоритмы', 'Геометрия'].map(cat => (
+          <button
+            key={cat}
+            onClick={() => setNoteCategoryFilter(cat)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition border ${
+              noteCategoryFilter === cat ? 'bg-orange-600 text-white border-transparent shadow-sm' : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
       {showNoteModal && (
         <div className="card p-4 space-y-3 border-orange-200 animate-slide shadow-lg">
           <div className="font-semibold text-sm flex items-center gap-1.5"><Brain size={16} className="text-orange-500"/> Новый смарт-конспект</div>
-          <div className="flex gap-2">
-            <select value={noteSubject} onChange={e => setNoteSubject(e.target.value)} className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm">
-              <option>Физика</option><option>Профмат</option><option>Информатика</option>
-            </select>
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/*"
-              capture="environment"
-              onChange={handleNoteImageUpload}
-              className="hidden"
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
-            >
-              <Camera size={14} className="text-emerald-600"/> Камера / Фото
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const samples = {
-                  'Физика': 'Законы постоянного тока и правила Кирхгофа. Сила тока I = U / R. Первое правило для узла цепи.',
-                  'Профмат': 'как решать параметры',
-                  'Информатика': 'Анализ сложности алгоритмов, бинарный поиск O(log N) и динамическое программирование.'
-                };
-                setNoteText(samples[noteSubject] || samples['Физика']);
-              }}
-              className="px-2.5 py-2 bg-stone-100 hover:bg-stone-200 rounded-xl text-xs font-medium text-stone-700 flex items-center gap-1 transition"
-            >
-              Шаблон
-            </button>
-          </div>
+          
+          <div className="space-y-2">
+            <div>
+              <label className="text-xs font-semibold text-stone-600 mb-1 block">Название темы / конспекта:</label>
+              <input
+                value={noteTitle}
+                onChange={e => setNoteTitle(e.target.value)}
+                placeholder="Например: Задание 18. Метод интервалов или Правила Кирхгофа"
+                className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus:border-orange-400"
+              />
+            </div>
 
-          {noteImagePreview && (
-            <div className="flex items-center gap-3 p-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl">
-              <img src={noteImagePreview} alt="Тетрадь" className="w-14 h-14 object-cover rounded-lg border border-emerald-300 shadow-sm" />
-              <div className="flex-1 text-xs">
-                <div className="font-bold text-emerald-900 flex items-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-600"/> Фото страницы загружено
-                </div>
-                <div className="text-stone-500 text-[11px]">Рукописный текст и формулы распознаны OCR</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] font-semibold text-stone-600 mb-1 block">Предмет:</label>
+                <select value={noteSubject} onChange={e => setNoteSubject(e.target.value)} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs">
+                  <option>Физика</option><option>Профмат</option><option>Информатика</option>
+                </select>
               </div>
-              <button onClick={() => setNoteImagePreview(null)} className="text-stone-400 hover:text-red-500 p-1">
-                <X size={16}/>
+              <div>
+                <label className="text-[11px] font-semibold text-stone-600 mb-1 block">Раздел:</label>
+                <select value={noteCategory} onChange={e => setNoteCategory(e.target.value)} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs">
+                  <option>Все</option>
+                  <option>Параметры</option>
+                  <option>Механика</option>
+                  <option>Электродинамика</option>
+                  <option>Алгоритмы</option>
+                  <option>Геометрия</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                capture="environment"
+                onChange={handleNoteImageUpload}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm"
+              >
+                <Camera size={14} className="text-emerald-600"/> Сделать фото тетради
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const samples = {
+                    'Физика': 'Законы постоянного тока и правила Кирхгофа. Сила тока I = U / R. Первое правило для узла цепи.',
+                    'Профмат': 'как решать параметры',
+                    'Информатика': 'Анализ сложности алгоритмов, бинарный поиск O(log N) и динамическое программирование.'
+                  };
+                  setNoteText(samples[noteSubject] || samples['Физика']);
+                  if (!noteTitle) setNoteTitle(`Тема: ${noteSubject}`);
+                }}
+                className="px-3 py-2 bg-stone-100 hover:bg-stone-200 rounded-xl text-xs font-medium text-stone-700 flex items-center gap-1 transition"
+              >
+                Шаблон
               </button>
             </div>
-          )}
 
-          <textarea
-            value={noteText}
-            onChange={e => setNoteText(e.target.value)}
-            rows={4}
-            placeholder="Вставьте текст конспекта, тему (например: 'как решать параметры') или сделайте фото тетради выше..."
-            className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-orange-300"
-          />
+            {noteImagePreview && (
+              <div className="flex items-center gap-3 p-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl">
+                <img src={noteImagePreview} alt="Тетрадь" className="w-14 h-14 object-cover rounded-lg border border-emerald-300 shadow-sm" />
+                <div className="flex-1 text-xs">
+                  <div className="font-bold text-emerald-900 flex items-center gap-1">
+                    <CheckCircle2 size={13} className="text-emerald-600"/> Страница тетради прикреплена
+                  </div>
+                  <div className="text-stone-500 text-[11px]">Фото сохраняется в карточке конспекта</div>
+                </div>
+                <button onClick={() => setNoteImagePreview(null)} className="text-stone-400 hover:text-red-500 p-1">
+                  <X size={16}/>
+                </button>
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-semibold text-stone-600 mb-1 block">Тезисы или формулы:</label>
+              <textarea
+                value={noteText}
+                onChange={e => setNoteText(e.target.value)}
+                rows={3}
+                placeholder="Вставьте тезисы, формулы или тему..."
+                className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs resize-none focus:outline-none focus:border-orange-300"
+              />
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700 py-1">
+              <input
+                type="checkbox"
+                checked={noteIsPublic}
+                onChange={e => setNoteIsPublic(e.target.checked)}
+                className="rounded border-stone-300 text-orange-600 focus:ring-orange-500"
+              />
+              <span>Открыть общий доступ (виден всей параллели лицеистов РЛИ)</span>
+            </label>
+          </div>
+
           {containsProfanity(noteText) && (
             <div className="text-[11px] bg-red-50 border border-red-200 text-red-700 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
               <AlertTriangle size={13} className="shrink-0 text-red-500"/>
@@ -1508,7 +1707,7 @@ export default function App() {
             </div>
           )}
           <div className="flex gap-2">
-            <button onClick={createNote} disabled={noteLoading || !noteText.trim() || containsProfanity(noteText)} className="flex-1 gradient-terra text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1 disabled:opacity-50">
+            <button onClick={createNote} disabled={noteLoading || (!noteText.trim() && !noteImagePreview) || containsProfanity(noteText)} className="flex-1 gradient-terra text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1 disabled:opacity-50">
               {noteLoading ? <><Clock size={14} className="animate-spin"/> Оцифровка...</> : <><Zap size={14}/> Оцифровать через ИИ</>}
             </button>
             <button onClick={() => setShowNoteModal(false)} className="px-4 bg-stone-100 text-stone-600 text-xs font-semibold py-2.5 rounded-xl">Отмена</button>
@@ -1518,7 +1717,7 @@ export default function App() {
 
       {filteredNotes.length === 0 && <div className="text-center text-sm text-stone-400 py-8">Нет конспектов. Нажмите + Оцифровать</div>}
       {filteredNotes.map(n => (
-        <div key={n.id} className="card p-4 space-y-2 shadow-sm">
+        <div key={n.id} className="card p-4 space-y-2.5 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="font-bold text-sm text-stone-900">{n.title}</span>
             <div className="flex items-center gap-1.5">
@@ -1532,7 +1731,31 @@ export default function App() {
               </button>
             </div>
           </div>
-          <div className="text-xs text-stone-500">{n.subject}</div>
+          <div className="flex items-center gap-2 text-xs text-stone-500">
+            <span>{n.subject}</span>
+            {n.category && n.category !== 'Все' && (
+              <span className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded-md text-[10px] font-medium">{n.category}</span>
+            )}
+            {n.author && (
+              <span className="text-[10px] text-stone-400 ml-auto">автор: {n.author}</span>
+            )}
+          </div>
+
+          {/* Фото страницы тетради, если загружено */}
+          {n.image && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setNotePhotoModal(n.image)}
+                className="group relative rounded-xl overflow-hidden border border-stone-200 block text-left w-full hover:border-orange-400 transition"
+              >
+                <img src={n.image} alt={n.title} className="w-full h-36 object-cover group-hover:scale-102 transition duration-200" />
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-white text-xs font-semibold gap-1.5">
+                  <Camera size={14}/> Нажмите, чтобы открыть фото страницы
+                </div>
+              </button>
+            </div>
+          )}
 
           {n.formulas?.length > 0 && (
             <div className="bg-stone-50 rounded-lg px-3 py-2 border border-stone-100 space-y-0.5">
@@ -1552,7 +1775,7 @@ export default function App() {
 
           {n.quiz && (
             <div className="bg-stone-50 rounded-xl p-3 space-y-2 border border-stone-100">
-              <div className="text-xs font-semibold flex items-center gap-1"><Target size={12}/> Мини-проверка</div>
+              <div className="text-xs font-semibold flex items-center gap-1"><Target size={12}/> Мини-проверка темы</div>
               <div className="text-xs text-stone-700 font-medium">{n.quiz.question}</div>
               <div className="grid grid-cols-2 gap-1.5">
                 {n.quiz.options.map((o,i) => (
@@ -1562,11 +1785,32 @@ export default function App() {
                   >{o}</button>
                 ))}
               </div>
-              {n.quizDone && <div className="text-xs text-emerald-600 font-semibold flex items-center gap-1"><ArrowUp size={12}/> +15 ELO, +5 листов</div>}
+              {n.quizDone && <div className="text-xs text-emerald-600 font-semibold flex items-center gap-1"><ArrowUp size={12}/> +15 XP, +5 листов (Практика)</div>}
             </div>
           )}
         </div>
       ))}
+
+      {/* Модальное окно полного просмотра фото тетради */}
+      {notePhotoModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-stone-900 border border-stone-700 rounded-3xl p-4 max-w-lg w-full space-y-3 animate-slide">
+            <div className="flex items-center justify-between text-white">
+              <span className="font-bold text-sm flex items-center gap-1.5"><Camera size={16} className="text-orange-400"/> Фото конспекта из тетради</span>
+              <button onClick={() => setNotePhotoModal(null)} className="text-stone-400 hover:text-white p-1"><X size={20}/></button>
+            </div>
+            <div className="rounded-2xl overflow-hidden bg-black flex items-center justify-center max-h-[70vh]">
+              <img src={notePhotoModal} alt="Конспект" className="max-h-[70vh] w-auto object-contain" />
+            </div>
+            <button
+              onClick={() => setNotePhotoModal(null)}
+              className="w-full py-2.5 bg-stone-800 hover:bg-stone-700 text-white rounded-xl text-xs font-semibold transition"
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1740,7 +1984,7 @@ export default function App() {
               disabled={sosHelpSubmitting || !sosHelpExplanation.trim() || containsProfanity(sosHelpExplanation)}
               className="flex-1 gradient-emerald text-white text-xs font-bold py-2.5 rounded-xl shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
-              <CheckCircle2 size={14}/> Отправить решение (+30 ELO)
+              <Send size={14}/> Отправить ответ в тред
             </button>
             <button
               onClick={() => setSosHelpTarget(null)}
@@ -1755,7 +1999,7 @@ export default function App() {
       {/* Список запросов SOS */}
       <div className="space-y-2">
         {sosRequests.map(r => (
-          <div key={r.id} className="card p-4 space-y-2 shadow-sm">
+          <div key={r.id} className="card p-4 space-y-2.5 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-700">{r.room}</span>
               <div className="flex items-center gap-1.5">
@@ -1771,39 +2015,109 @@ export default function App() {
             </div>
             <div className="text-sm font-medium text-stone-800">{r.text}</div>
 
-            {/* Если решение уже отправлено */}
-            {r.status === 'helped' && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-emerald-800 flex items-center gap-1">
-                    <CheckCircle2 size={13} className="text-emerald-600"/> Решение от {r.helper}:
-                  </div>
-                  <button
-                    onClick={() => reportSos(r.id)}
-                    className="text-[10px] text-stone-400 hover:text-red-600 flex items-center gap-1 font-medium transition"
-                    title="Пожаловаться на некорректный ответ"
-                  >
-                    <Flag size={11}/> Пожаловаться
-                  </button>
+            {/* Тред ответов лицеистов */}
+            {((r.answers && r.answers.length > 0) || (r.explanation && r.helper)) && (
+              <div className="space-y-2 pt-1 border-t border-stone-200/60">
+                <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                  Ответы лицеистов ({((r.answers && r.answers.length) || (r.explanation ? 1 : 0))})
                 </div>
-                <div className="text-xs text-stone-700">{r.explanation || 'Решение предоставлено.'}</div>
+
+                {(r.answers && r.answers.length > 0
+                  ? r.answers
+                  : [{ id: 1, helper: r.helper, text: r.explanation, isAccepted: r.status === 'helped', reported: false }]
+                ).map(ans => {
+                  const isAuthor = profile?.name?.toLowerCase() === r.author?.toLowerCase();
+                  return (
+                    <div
+                      key={ans.id}
+                      className={`p-3 rounded-xl border text-xs space-y-1.5 transition ${
+                        ans.isAccepted
+                          ? 'bg-emerald-50/70 border-emerald-300'
+                          : ans.reported
+                          ? 'bg-amber-50/80 border-amber-300'
+                          : 'bg-stone-50 border-stone-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold flex items-center gap-1.5">
+                          {ans.isAccepted ? (
+                            <span className="text-emerald-800 flex items-center gap-1">
+                              <CheckCircle2 size={13} className="text-emerald-600"/> Принятое решение от {ans.helper}
+                            </span>
+                          ) : (
+                            <span className="text-stone-800">Решение от {ans.helper}:</span>
+                          )}
+                          {ans.reported && (
+                            <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">
+                              ⏳ На проверке Совета Лицея
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {/* Автор запроса может ПРИНЯТЬ ответ как лучший (+30 ELO) */}
+                          {isAuthor && !ans.isAccepted && !ans.toxicConfirmed && (
+                            <button
+                              onClick={() => acceptSosAnswer(r.id, ans.id)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shadow-sm flex items-center gap-1 transition"
+                            >
+                              <Check size={11}/> Принять (+30 ELO)
+                            </button>
+                          )}
+
+                          {/* Любой лицеист может пожаловаться */}
+                          {!ans.reported && !ans.toxicConfirmed && (
+                            <button
+                              onClick={() => reportSosAnswer(r.id, ans.id)}
+                              className="text-stone-400 hover:text-red-500 text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded transition"
+                              title="Пожаловаться Совету Лицея"
+                            >
+                              <Flag size={11}/> Пожаловаться
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className={`leading-relaxed ${ans.toxicConfirmed ? 'italic text-red-600' : 'text-stone-700'}`}>
+                        {ans.text}
+                      </div>
+
+                      {/* Панель модератора для Совета Лицея (Леонид) */}
+                      {isAdmin && ans.reported && (
+                        <div className="pt-2 mt-1 border-t border-amber-200/80 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-amber-900 flex items-center gap-1">
+                            <ShieldCheck size={12} className="text-amber-700"/> Совет Лицея:
+                          </span>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => moderateSosAnswer(r.id, ans.id, 'approve')}
+                              className="px-2 py-1 bg-white border border-stone-300 text-stone-700 rounded-lg text-[10px] font-semibold hover:bg-stone-100 transition shadow-sm"
+                            >
+                              Одобрить (нет нарушений)
+                            </button>
+                            <button
+                              onClick={() => moderateSosAnswer(r.id, ans.id, 'delete')}
+                              className="px-2 py-1 bg-red-600 text-white rounded-lg text-[10px] font-bold hover:bg-red-700 transition shadow-sm"
+                            >
+                              Удалить и штраф -30 ELO
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
             <div className="flex items-center justify-between pt-1">
               <span className="text-xs text-stone-400">от {r.author}</span>
-              {r.status === 'open' ? (
-                <button
-                  onClick={() => openHelpModal(r)}
-                  className="gradient-terra text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm hover:opacity-90 transition"
-                >
-                  <Zap size={12}/> Помочь (+{r.reward} ELO)
-                </button>
-              ) : (
-                <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1">
-                  <Check size={14}/> Помог: {r.helper}
-                </span>
-              )}
+              <button
+                onClick={() => openHelpModal(r)}
+                className="gradient-terra text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm hover:opacity-90 transition"
+              >
+                <Zap size={12}/> Ответить лицеисту (+30 ELO за принятие)
+              </button>
             </div>
           </div>
         ))}
@@ -1830,8 +2144,11 @@ export default function App() {
       </div>
 
       <div className="card p-4 space-y-3">
-        <div className="text-sm font-semibold flex items-center gap-1.5"><Key size={14}/> Пользовательский API-ключ Gemini (необязательно)</div>
-        <input value={apiInput} onChange={e => setApiInput(e.target.value)} placeholder="AIzaSy... (Ключ Google AI Studio)" className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:border-orange-300"/>
+        <div className="text-sm font-semibold flex items-center gap-1.5"><Key size={14}/> Google Gemini AI API-ключ</div>
+        <p className="text-xs text-stone-500 leading-relaxed">
+          Бесплатный ключ от <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="text-orange-600 underline font-semibold">aistudio.google.com</a> (начинается с <code>AIzaSy...</code>). Позволяет подключить облачную модель Gemini 2.0 Flash. Без ключа Арена работает автономно на лицейском офлайн-движке ФИПИ (Smart Local).
+        </p>
+        <input value={apiInput} onChange={e => setApiInput(e.target.value)} placeholder="AIzaSy... (Ключ Google AI Studio)" className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-orange-300"/>
         <div className="flex gap-2">
           <button onClick={saveKey} disabled={!apiInput.trim()} className="flex-1 gradient-terra text-white text-xs font-semibold py-2.5 rounded-xl disabled:opacity-50 flex items-center justify-center gap-1">
             <Check size={14}/> Сохранить свой ключ
@@ -1899,13 +2216,13 @@ export default function App() {
   const pages = [renderHome, renderDuel, renderNotes, renderSos, renderSystem];
 
   return (
-    <div className="min-h-screen bg-[#18181B] flex justify-center">
-      <div className="w-full max-w-[430px] min-h-screen bg-[#F5F2EB] text-[#1C1917] shadow-2xl border-x border-[#E2DDD3] flex flex-col relative">
+    <div className={`min-h-screen ${theme === 'dark' ? 'theme-dark bg-black' : 'theme-light bg-[#18181B]'} flex justify-center`}>
+      <div className={`w-full max-w-[440px] min-h-screen ${theme === 'dark' ? 'bg-[#18181B] text-[#F4F4F5] border-[#27272A]' : 'bg-[#F5F2EB] text-[#1C1917] border-[#E2DDD3]'} shadow-2xl border-x flex flex-col relative transition-colors duration-200`}>
         <main className="flex-1 overflow-y-auto px-4 pt-5 pb-24">
           {pages[tab]()}
         </main>
 
-        <nav className="fixed bottom-0 w-full max-w-[430px] bg-white/90 backdrop-blur-lg border-t border-[#E6E1D6] px-2 py-2 flex justify-around z-50">
+        <nav className={`fixed bottom-0 w-full max-w-[440px] ${theme === 'dark' ? 'bg-[#18181B]/95 border-[#27272A]' : 'bg-white/95 border-[#E6E1D6]'} backdrop-blur-lg border-t px-2 py-2 flex justify-around z-50`}>
           {tabs.map((t, i) => {
             const Icon = t.icon;
             const active = tab === i;
