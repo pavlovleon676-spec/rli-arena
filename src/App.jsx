@@ -1064,12 +1064,16 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#18181B] flex justify-center items-center p-4">
         <div className="w-full max-w-[430px] bg-[#F5F2EB] text-[#1C1917] rounded-3xl p-6 shadow-2xl border border-[#E2DDD3] space-y-5 animate-slide">
-          <div className="text-center space-y-1">
-            <div className="inline-flex p-3 rounded-2xl gradient-terra text-white mb-2 shadow-lg">
-              <Swords size={28}/>
+          <div className="text-center space-y-2">
+            <img
+              src="/logo.png"
+              alt="РЛИ Арена"
+              className="w-24 h-24 mx-auto rounded-3xl shadow-xl border-2 border-orange-400 bg-white object-contain p-1"
+            />
+            <div>
+              <h1 className="text-2xl font-black tracking-tight text-stone-900">RLI Arena</h1>
+              <p className="text-xs text-stone-500 font-medium">Физмат-арена Республиканского лицея-интерната</p>
             </div>
-            <h1 className="text-2xl font-extrabold tracking-tight">RLI Arena</h1>
-            <p className="text-xs text-stone-500 font-medium">Физмат-арена Республиканского лицея-интерната</p>
           </div>
 
           <div className="flex bg-stone-200/80 p-1 rounded-xl text-xs font-bold">
@@ -1164,6 +1168,11 @@ export default function App() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
+            <img
+              src="/logo.png"
+              alt="РЛИ Арена"
+              className="w-8 h-8 rounded-xl border border-orange-400/60 shadow-sm bg-white object-contain p-0.5 shrink-0"
+            />
             <h1 className="text-xl font-extrabold tracking-tight">RLI Arena</h1>
             <button
               onClick={() => setShowQrModal(true)}
@@ -1445,7 +1454,12 @@ export default function App() {
             <span className="font-bold text-sm flex items-center gap-1.5"><Smartphone size={16} className="text-orange-600"/> Играть с телефона</span>
             <button onClick={() => setShowQrModal(false)} className="text-stone-400 hover:text-stone-700"><X size={18}/></button>
           </div>
-          <div className="flex justify-center py-2">
+          <img
+            src="/logo.png"
+            alt="РЛИ Арена"
+            className="w-14 h-14 mx-auto rounded-2xl border-2 border-orange-400/80 shadow-md bg-white object-contain p-0.5"
+          />
+          <div className="flex justify-center py-1">
             <img
               src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(PUBLIC_URL)}`}
               alt="QR Code"
