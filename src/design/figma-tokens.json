@@ -1,0 +1,53 @@
+{
+  "$schema": "https://tokens.studio/schemas/token-set.json",
+  "version": "1.0.0",
+  "name": "RLI Arena Design System",
+  "author": "RLI Arena UI/UX Team",
+  "global": {
+    "color": {
+      "brand": {
+        "primary": { "value": "#EA580C", "type": "color", "description": "Терракотовый акцент РЛИ (Terra Cotta)" },
+        "primary-hover": { "value": "#C2410C", "type": "color" },
+        "primary-light": { "value": "#FFEDD5", "type": "color" },
+        "emerald": { "value": "#064E3B", "type": "color", "description": "Изумрудный академический градиент" },
+        "mint": { "value": "#A7F3D0", "type": "color" },
+        "amber": { "value": "#F59E0B", "type": "color", "description": "Золотой статус ELO и Совет Лицея" }
+      },
+      "surface": {
+        "light-bg": { "value": "#F5F2EB", "type": "color", "description": "Теплый песочный фон (Paperless)" },
+        "light-card": { "value": "#FFFFFF", "type": "color" },
+        "light-border": { "value": "#E2DDD3", "type": "color" },
+        "dark-bg": { "value": "#18181B", "type": "color", "description": "Графитовый OLED фон" },
+        "dark-card": { "value": "#1C1C20", "type": "color" },
+        "dark-border": { "value": "#2E2E34", "type": "color" }
+      },
+      "text": {
+        "light-primary": { "value": "#1C1917", "type": "color" },
+        "light-secondary": { "value": "#78716C", "type": "color" },
+        "dark-primary": { "value": "#FAFAFA", "type": "color" },
+        "dark-secondary": { "value": "#A1A1AA", "type": "color" }
+      }
+    },
+    "borderRadius": {
+      "card": { "value": "20px", "type": "borderRadius" },
+      "element": { "value": "12px", "type": "borderRadius" },
+      "pill": { "value": "9999px", "type": "borderRadius" }
+    },
+    "spacing": {
+      "xs": { "value": "4px", "type": "spacing" },
+      "sm": { "value": "8px", "type": "spacing" },
+      "md": { "value": "12px", "type": "spacing" },
+      "lg": { "value": "16px", "type": "spacing" },
+      "xl": { "value": "20px", "type": "spacing" }
+    },
+    "typography": {
+      "fontFamilySans": { "value": "Plus Jakarta Sans, Inter, sans-serif", "type": "fontFamilies" },
+      "fontFamilyMono": { "value": "JetBrains Mono, monospace", "type": "fontFamilies" },
+      "h1": { "fontSize": "20px", "lineHeight": "28px", "fontWeight": "800" },
+      "h2": { "fontSize": "16px", "lineHeight": "24px", "fontWeight": "700" },
+      "body": { "fontSize": "14px", "lineHeight": "20px", "fontWeight": "500" },
+      "caption": { "fontSize": "11px", "lineHeight": "14px", "fontWeight": "700" },
+      "formula": { "fontSize": "12px", "lineHeight": "18px", "fontWeight": "600" }
+    }
+  }
+}
