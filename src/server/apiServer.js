@@ -709,7 +709,8 @@ ${trimmedText}
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 14000);
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keyToUse)}`;
+            const response = await fetch(url, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -758,13 +759,15 @@ ${trimmedText}
         const keyToUse = (payload.apiKey && payload.apiKey.trim().length > 15) ? payload.apiKey.trim() : (process.env.VITE_GEMINI_API_KEY || EMBEDDED_KEY);
         const start = Date.now();
         const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        let lastErr = 'Неизвестная ошибка';
 
         for (const model of models) {
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keyToUse)}`;
+            const response = await fetch(url, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -783,19 +786,22 @@ ${trimmedText}
               const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || 'OK';
               return res.end(JSON.stringify({
                 ok: true,
-                message: `Google Gemini 2.0 Flash (${model}): ${txt.trim()}`,
+                message: `Google Gemini (${model}): ${txt.trim()}`,
                 ms,
                 model
               }));
+            } else {
+              const errBody = await response.text();
+              lastErr = `HTTP ${response.status}: ${errBody.slice(0, 150)}`;
             }
           } catch (err) {
-            console.warn(`[PING] ${model} error:`, err.message);
+            lastErr = `${err.name}: ${err.message}`;
           }
         }
 
         return res.end(JSON.stringify({
           ok: false,
-          message: 'Таймаут соединения с Google AI через сервер',
+          message: `Ошибка облака Google: ${lastErr}`,
           ms: Date.now() - start
         }));
       }
