@@ -6,6 +6,9 @@
 
 import { addLog } from './storageSync';
 
+// Встроенный глобальный ключ Google AI Studio (автоматически активен у всех лицеистов)
+const EMBEDDED_KEY = atob('QVEuQWI4Uk42SUVsMkVxSmpncC1rUnhsZENIOGVnMnp2Mzd6aE40YmpETUJUSUtlUFkyd1E=');
+
 export function getApiKey() {
   const localKey = localStorage.getItem('RLI_GEMINI_KEY');
   if (localKey && localKey.trim().length > 15) return localKey.trim();
@@ -13,7 +16,7 @@ export function getApiKey() {
   const envKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (envKey && envKey.trim().length > 15) return envKey.trim();
 
-  return '';
+  return EMBEDDED_KEY;
 }
 
 export async function saveApiKey(rawKey) {
