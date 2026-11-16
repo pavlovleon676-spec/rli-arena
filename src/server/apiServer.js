@@ -703,16 +703,14 @@ ${trimmedText}
   }
 }`;
 
-        const models = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+        const models = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-flash-latest'];
         let lastFail = 'Неизвестная ошибка';
         for (const model of models) {
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 14000);
 
-            const url = keyToUse.startsWith('AQ.')
-              ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
-              : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keyToUse)}`;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
             const response = await fetch(url, {
               method: 'POST',
@@ -747,7 +745,7 @@ ${trimmedText}
               }
             } else {
               const errBody = await response.text();
-              lastFail = `${model} HTTP ${response.status}: ${errBody.slice(0, 150)}`;
+              lastFail = `${model} HTTP ${response.status}: ${errBody}`;
             }
           } catch (e) {
             lastFail = `${model} exception: ${e.message}`;
