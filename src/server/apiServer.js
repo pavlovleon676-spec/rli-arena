@@ -703,7 +703,8 @@ ${trimmedText}
   }
 }`;
 
-        const models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'];
+        const models = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+        let lastFail = 'Неизвестная ошибка';
         for (const model of models) {
           try {
             const controller = new AbortController();
@@ -720,8 +721,7 @@ ${trimmedText}
                 'X-goog-api-key': keyToUse
               },
               body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { responseMimeType: 'application/json' }
+                contents: [{ parts: [{ text: prompt }] }]
               }),
               signal: controller.signal
             });
@@ -731,8 +731,10 @@ ${trimmedText}
               const data = await response.json();
               const rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text;
               if (rawJson) {
-                const cleanJson = rawJson.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-                const parsed = JSON.parse(cleanJson);
+                const cleanJson = rawJson.replace(/```json/gi, '').replace(/```/g, '').trim();
+                const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+                const toParse = jsonMatch ? jsonMatch[0] : cleanJson;
+                const parsed = JSON.parse(toParse);
                 return res.end(JSON.stringify({
                   ok: true,
                   isLiveAI: true,
@@ -745,14 +747,14 @@ ${trimmedText}
               }
             } else {
               const errBody = await response.text();
-              console.warn(`[GEMINI_SERVER] ${model} HTTP ${response.status}:`, errBody.slice(0, 120));
+              lastFail = `${model} HTTP ${response.status}: ${errBody.slice(0, 150)}`;
             }
           } catch (e) {
-            console.warn(`[GEMINI_SERVER] ${model} error:`, e.message);
+            lastFail = `${model} exception: ${e.message}`;
           }
         }
 
-        return res.end(JSON.stringify({ ok: false, error: 'Gemini server proxy failed' }));
+        return res.end(JSON.stringify({ ok: false, error: lastFail }));
       }
 
       // ============================================================
