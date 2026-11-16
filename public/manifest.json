@@ -1,0 +1,18 @@
+{
+  "name": "RLI Arena — Лицейская Арена",
+  "short_name": "RLI Arena",
+  "description": "Физмат-арена Республиканского лицея-интерната: дуэли формул, оцифровка конспектов и взаимопомощь",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#18181B",
+  "theme_color": "#15803D",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
