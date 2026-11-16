@@ -59,6 +59,24 @@ const INITIAL_STATE = {
       explanation: null,
       helper: null
     }
+  ],
+  chatMessages: [
+    {
+      id: 1700000000010,
+      from: 'Айсен',
+      to: 'all',
+      text: 'Всем привет! Кто сегодня идет на подготовку к олимпиаде по физике в 305 каб?',
+      profileGroup: 'Физмат',
+      createdAt: Date.now() - 3600000
+    },
+    {
+      id: 1700000000011,
+      from: 'Сардаана',
+      to: 'all',
+      text: 'Я повторяю формулы в Конспектах РЛИ, оцифровка тетрадей супер удобная!',
+      profileGroup: 'Политех',
+      createdAt: Date.now() - 1800000
+    }
   ]
 };
 
@@ -191,7 +209,8 @@ export function createApiMiddleware() {
           myFriendRequests,
           myDuelInvites,
           activeBattle,
-          finishedBattle
+          finishedBattle,
+          chatMessages: (db.chatMessages || []).slice(-60)
         }));
       }
 
@@ -832,6 +851,41 @@ ${trimmedText}
           message: `Ошибка облака Google: ${lastErr}`,
           ms: Date.now() - start
         }));
+      }
+
+      // ============================================================
+      // 13. ЧАТ ЛИЦЕИСТОВ (POST /api/chat/send)
+      // ============================================================
+      if (pathname === '/api/chat/send' && req.method === 'POST') {
+        const { from, to, text } = payload;
+        const trimmed = (text || '').trim();
+        if (!trimmed) {
+          res.statusCode = 400;
+          return res.end(JSON.stringify({ error: 'Пустое сообщение' }));
+        }
+
+        if (PROFANITY_REGEX.test(trimmed)) {
+          res.statusCode = 400;
+          return res.end(JSON.stringify({ error: 'Сообщение содержит некорректные выражения (Кодекс этики РЛИ).' }));
+        }
+
+        const sender = db.users.find(u => u.name.toLowerCase() === (from || '').toLowerCase());
+        const newMsg = {
+          id: Date.now(),
+          from: from || 'Лицеист',
+          to: to || 'all',
+          text: trimmed,
+          profileGroup: sender ? sender.profileGroup : 'Физмат',
+          createdAt: Date.now()
+        };
+
+        db.chatMessages = db.chatMessages || [];
+        db.chatMessages.push(newMsg);
+        if (db.chatMessages.length > 250) {
+          db.chatMessages = db.chatMessages.slice(-200);
+        }
+        saveDb(db);
+        return res.end(JSON.stringify({ ok: true, message: newMsg }));
       }
 
       return next();

@@ -42,6 +42,25 @@ export default function App() {
   const [incomingDuelInvite, setIncomingDuelInvite] = useState(null);
   const [activeBattleId, setActiveBattleId] = useState(null);
 
+  // Лицейский чат и центр уведомлений
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatRecipient, setChatRecipient] = useState('all'); // 'all' (Кампус РЛИ) или имя друга
+  const [friendsTabMode, setFriendsTabMode] = useState('list'); // 'list' | 'chat'
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [toast, setToast] = useState(null);
+  const lastChatIdRef = useRef(0);
+  const lastFriendReqIdRef = useRef(null);
+  const lastDuelInviteIdRef = useRef(null);
+  const chatBottomRef = useRef(null);
+
+  const showToast = useCallback((text) => {
+    setToast(text);
+    setTimeout(() => {
+      setToast(prev => prev === text ? null : prev);
+    }, 4500);
+  }, []);
+
   // Авторизация / Регистрация (открыта, если пользователь не вошел)
   const [isAuthOpen, setIsAuthOpen] = useState(() => !localStorage.getItem('RLI_CURRENT_USER'));
   const [authTab, setAuthTab] = useState('register'); // 'login' | 'register'
@@ -132,16 +151,28 @@ export default function App() {
 
           // 1. Входящий запрос в друзья
           if (data.myFriendRequests?.length > 0) {
-            setIncomingFriendRequest(data.myFriendRequests[0]);
+            const req = data.myFriendRequests[0];
+            setIncomingFriendRequest(req);
+            if (lastFriendReqIdRef.current !== req.id) {
+              lastFriendReqIdRef.current = req.id;
+              showToast(`🤝 ${req.from} хочет добавить вас в друзья!`);
+            }
           } else {
             setIncomingFriendRequest(null);
+            lastFriendReqIdRef.current = null;
           }
 
           // 2. Входящий вызов на дуэль (для защищающегося)
           if (data.myDuelInvites?.length > 0) {
-            setIncomingDuelInvite(data.myDuelInvites[0]);
+            const inv = data.myDuelInvites[0];
+            setIncomingDuelInvite(inv);
+            if (lastDuelInviteIdRef.current !== inv.id) {
+              lastDuelInviteIdRef.current = inv.id;
+              showToast(`⚔️ ${inv.from} вызывает вас на дуэль (${inv.subject})!`);
+            }
           } else {
             setIncomingDuelInvite(null);
+            lastDuelInviteIdRef.current = null;
           }
 
           // 3. Синхронизация активной дуэли (для ОБОИХ игроков)
@@ -209,6 +240,18 @@ export default function App() {
               profile: currentU ? { ...s.profile, ...currentU } : null
             };
           });
+
+          // 6. Синхронизация лицейского чата
+          if (Array.isArray(data.chatMessages)) {
+            setChatMessages(data.chatMessages);
+            if (data.chatMessages.length > 0) {
+              const last = data.chatMessages[data.chatMessages.length - 1];
+              if (last && lastChatIdRef.current && last.id !== lastChatIdRef.current && last.from.toLowerCase() !== (userName || '').toLowerCase()) {
+                showToast(`💬 ${last.from}: ${last.text.slice(0, 40)}`);
+              }
+              lastChatIdRef.current = last.id;
+            }
+          }
         }
       } catch {
         // Оффлайн
@@ -322,6 +365,44 @@ export default function App() {
       setIncomingFriendRequest(null);
       addLog('[FRIENDS]', accept ? 'Запрос в друзья принят' : 'Запрос в друзья отклонен');
     } catch {}
+  };
+
+  // ==================== ЛИЦЕЙСКИЙ ЧАТ ====================
+
+  const sendChatMessage = async (presetText) => {
+    const textToSend = (presetText || chatInput).trim();
+    if (!textToSend) return;
+    if (containsProfanity(textToSend)) {
+      alert('Сообщение содержит некорректные выражения (Кодекс этики РЛИ).');
+      return;
+    }
+
+    const optimisticMsg = {
+      id: Date.now(),
+      from: profile?.name || 'Лицеист',
+      to: chatRecipient,
+      text: textToSend,
+      profileGroup: profile?.profileGroup || 'Физмат',
+      createdAt: Date.now()
+    };
+
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    setChatInput('');
+
+    try {
+      await fetch('/api/chat/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: profile?.name,
+          to: chatRecipient,
+          text: textToSend
+        })
+      });
+      addLog('[CHAT]', `Отправлено сообщение (${chatRecipient}): ${textToSend.slice(0, 30)}`);
+    } catch (e) {
+      console.warn('[CHAT] Ошибка:', e.message);
+    }
   };
 
   // ==================== ВЫЗОВ И СИНХРОНИЗАЦИЯ ДУЭЛИ ====================
@@ -1007,6 +1088,18 @@ export default function App() {
             >
               {theme === 'dark' ? <Sun size={16} className="text-amber-400"/> : <Moon size={16} className="text-stone-600"/>}
             </button>
+            <button
+              onClick={() => setShowNotificationsModal(true)}
+              className="relative p-1.5 bg-white border border-stone-200 rounded-xl text-stone-700 hover:text-orange-600 transition shadow-sm"
+              title="Центр уведомлений лицея"
+            >
+              <Bell size={16}/>
+              {(incomingDuelInvite || incomingFriendRequest || chatMessages.length > 0) && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-extrabold flex items-center justify-center animate-pulse">
+                  {(incomingDuelInvite ? 1 : 0) + (incomingFriendRequest ? 1 : 0) + (chatMessages.length > 0 ? 1 : 0)}
+                </span>
+              )}
+            </button>
             {isAdmin && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/30 flex items-center gap-1 shadow-sm">
                 <ShieldCheck size={12}/> Совет РЛИ
@@ -1214,13 +1307,26 @@ export default function App() {
                     </div>
                     <span className="font-bold font-mono">{p.elo}</span>
                     {!isMe && (
-                      <button
-                        onClick={() => sendDuelChallenge(p.name)}
-                        className="p-1 rounded-lg bg-white border border-stone-200 hover:border-orange-400 text-orange-600 transition"
-                        title="Вызвать на дуэль"
-                      >
-                        <Swords size={14}/>
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setChatRecipient(p.name);
+                            setTab(3);
+                            setFriendsTabMode('chat');
+                          }}
+                          className="p-1 rounded-lg bg-white border border-stone-200 hover:border-orange-400 text-stone-600 hover:text-orange-600 transition"
+                          title={`Написать ${p.name} в личку`}
+                        >
+                          <MessageCircle size={14}/>
+                        </button>
+                        <button
+                          onClick={() => sendDuelChallenge(p.name)}
+                          className="p-1 rounded-lg bg-white border border-stone-200 hover:border-orange-400 text-orange-600 transition"
+                          title="Вызвать на дуэль"
+                        >
+                          <Swords size={14}/>
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -1823,53 +1929,202 @@ export default function App() {
   // ---------- [3] ДРУЗЬЯ И SOS-МЕНТОРСТВО ----------
   const renderSos = () => (
     <div className="space-y-4 animate-fade">
-      {/* Список зарегистрированных лицеистов РЛИ */}
-      <div className="card p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="font-bold text-sm flex items-center gap-1.5"><Users size={16} className="text-orange-600"/> Лицеисты РЛИ ({users.length})</span>
-          <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-            <Radio size={12} className="animate-pulse"/> {onlineUsers.length} онлайн
-          </span>
-        </div>
+      {/* Переключатель режимов: Одноклассники / Чат Лицея */}
+      <div className="flex bg-stone-200/70 p-1 rounded-2xl text-xs font-bold shadow-sm">
+        <button
+          onClick={() => setFriendsTabMode('list')}
+          className={`flex-1 py-1.5 rounded-xl transition flex items-center justify-center gap-1.5 ${
+            friendsTabMode === 'list'
+              ? (theme === 'dark' ? 'bg-[#2A2A30] text-white shadow' : 'bg-white text-stone-900 shadow')
+              : 'text-stone-500 hover:text-stone-800'
+          }`}
+        >
+          <Users size={14}/> Лицеисты и SOS
+        </button>
+        <button
+          onClick={() => { setFriendsTabMode('chat'); setChatRecipient('all'); }}
+          className={`flex-1 py-1.5 rounded-xl transition flex items-center justify-center gap-1.5 relative ${
+            friendsTabMode === 'chat'
+              ? (theme === 'dark' ? 'bg-[#2A2A30] text-white shadow' : 'bg-white text-stone-900 shadow')
+              : 'text-stone-500 hover:text-stone-800'
+          }`}
+        >
+          <MessageCircle size={14} className="text-orange-500"/> Чат Лицея 💬
+          {chatMessages.length > 0 && (
+            <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"/>
+          )}
+        </button>
+      </div>
 
-        <div className="flex items-center justify-between text-[11px] text-stone-500 bg-stone-100/80 px-2.5 py-1.5 rounded-xl border border-stone-200/50">
-          <span>Вы: <strong className="text-stone-800">{profile?.name}</strong> ({profile?.profileGroup})</span>
-          <span>Лимит: <strong className="text-emerald-600 font-semibold">Без ограничений</strong></span>
-        </div>
+      {friendsTabMode === 'chat' ? (
+        /* ЧАТ ЛИЦЕИСТОВ */
+        <div className="card p-4 space-y-3 animate-fade flex flex-col h-[520px]">
+          {/* Шапка чата */}
+          <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl gradient-terra text-white">
+                <MessageCircle size={16}/>
+              </div>
+              <div>
+                <div className="text-xs font-bold flex items-center gap-1">
+                  <span>{chatRecipient === 'all' ? 'Общий кампус РЛИ' : `Диалог: ${chatRecipient}`}</span>
+                  {chatRecipient === 'all' && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/>}
+                </div>
+                <div className="text-[10px] text-stone-400">
+                  {chatRecipient === 'all' ? `${onlineUsers.length} онлайн в сети` : 'Личные сообщения с другом'}
+                </div>
+              </div>
+            </div>
 
-        {/* Фильтры и поиск одноклассников */}
-        <div className="space-y-2">
-          <div className="flex bg-stone-100 p-0.5 rounded-xl text-xs font-semibold">
-            <button
-              onClick={() => setFriendTabFilter('all')}
-              className={`flex-1 py-1 rounded-lg transition ${friendTabFilter==='all'?'bg-white text-stone-900 shadow-sm':'text-stone-500'}`}
-            >
-              Все ({availableOpponents.length})
-            </button>
-            <button
-              onClick={() => setFriendTabFilter('friends')}
-              className={`flex-1 py-1 rounded-lg transition ${friendTabFilter==='friends'?'bg-white text-stone-900 shadow-sm':'text-stone-500'}`}
-            >
-              Друзья ⭐ ({profile?.friends?.length || 0})
-            </button>
-            <button
-              onClick={() => setFriendTabFilter('online')}
-              className={`flex-1 py-1 rounded-lg transition ${friendTabFilter==='online'?'bg-white text-stone-900 shadow-sm':'text-stone-500'}`}
-            >
-              В сети 🟢 ({onlineUsers.filter(u => u !== profile?.name).length})
-            </button>
+            <div className="flex gap-1 text-[11px]">
+              <button
+                onClick={() => setChatRecipient('all')}
+                className={`px-2 py-1 rounded-lg font-bold transition ${
+                  chatRecipient === 'all' ? 'gradient-terra text-white shadow-sm' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                }`}
+              >
+                Кампус 🌐
+              </button>
+              {profile?.friends?.length > 0 && (
+                <select
+                  value={chatRecipient}
+                  onChange={e => setChatRecipient(e.target.value)}
+                  className="text-[11px] bg-stone-100 border border-stone-200 rounded-lg px-1.5 py-0.5 font-semibold focus:outline-none"
+                >
+                  <option value="all">Все друзья</option>
+                  {profile.friends.map(f => (
+                    <option key={f} value={f}>Личка: {f}</option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400"/>
+          {/* Область сообщений */}
+          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 text-xs">
+            {chatMessages.filter(m => chatRecipient === 'all' ? (m.to === 'all' || !m.to) : ((m.from?.toLowerCase() === profile?.name?.toLowerCase() && m.to?.toLowerCase() === chatRecipient?.toLowerCase()) || (m.from?.toLowerCase() === chatRecipient?.toLowerCase() && m.to?.toLowerCase() === profile?.name?.toLowerCase()))).length === 0 ? (
+              <div className="text-center py-14 text-stone-400 space-y-1">
+                <div className="text-3xl">💬</div>
+                <div className="font-semibold text-xs">В этом чате пока тихо</div>
+                <div className="text-[10px]">Напишите сообщение или позовите одноклассника на дуэль!</div>
+              </div>
+            ) : (
+              chatMessages
+                .filter(m => chatRecipient === 'all' ? (m.to === 'all' || !m.to) : ((m.from?.toLowerCase() === profile?.name?.toLowerCase() && m.to?.toLowerCase() === chatRecipient?.toLowerCase()) || (m.from?.toLowerCase() === chatRecipient?.toLowerCase() && m.to?.toLowerCase() === profile?.name?.toLowerCase())))
+                .map(msg => {
+                  const isMe = msg.from?.toLowerCase() === profile?.name?.toLowerCase();
+                  const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  return (
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-stone-400 px-1">
+                        <span className="font-bold text-stone-700">{msg.from}</span>
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-stone-200/80 font-semibold">{msg.profileGroup || 'Физмат'}</span>
+                        <span>{timeStr}</span>
+                      </div>
+                      <div className={`p-2.5 rounded-2xl max-w-[85%] break-words text-xs shadow-sm ${
+                        isMe
+                          ? 'gradient-terra text-white rounded-br-xs'
+                          : (theme === 'dark' ? 'bg-[#24242A] border border-[#34343C] text-stone-200 rounded-bl-xs' : 'bg-stone-100 border border-stone-200/70 text-stone-900 rounded-bl-xs')
+                      }`}>
+                        {msg.text}
+                      </div>
+                    </div>
+                  );
+                })
+            )}
+            <div ref={chatBottomRef}/>
+          </div>
+
+          {/* Быстрые физмат-чипы */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1 pt-1 no-scrollbar text-[11px]">
+            {[
+              '⚔️ Го в дуэль по физике!',
+              '💡 Кто решит в 305 каб?',
+              '📚 Скиньте конспект',
+              '🔥 +25 ELO победа!'
+            ].map((chip, i) => (
+              <button
+                key={i}
+                onClick={() => sendChatMessage(chip)}
+                className={`shrink-0 px-2 py-1 rounded-xl border text-[10px] font-medium transition ${
+                  theme === 'dark' ? 'bg-[#1C1C20] border-[#2E2E34] text-stone-300 hover:border-orange-500' : 'bg-stone-50 border-stone-200 text-stone-700 hover:bg-orange-50 hover:border-orange-300'
+                }`}
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+
+          {/* Поле ввода сообщения */}
+          <div className="flex items-center gap-1.5 pt-1 border-t border-stone-200/60">
             <input
-              value={friendSearch}
-              onChange={e => setFriendSearch(e.target.value)}
-              placeholder="Поиск одноклассника..."
-              className="w-full bg-stone-50 border border-stone-200 rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-orange-400"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') sendChatMessage(); }}
+              placeholder={chatRecipient === 'all' ? 'Сообщение в общий кампус...' : `Личное для ${chatRecipient}...`}
+              className={`flex-1 rounded-xl px-3 py-2 text-xs focus:outline-none ${
+                theme === 'dark' ? 'bg-[#141416] border border-[#2E2E34] text-white focus:border-orange-500' : 'bg-stone-50 border border-stone-200 text-stone-900 focus:border-orange-400'
+              }`}
             />
+            <button
+              onClick={() => sendChatMessage()}
+              disabled={!chatInput.trim()}
+              className="gradient-terra text-white p-2 rounded-xl shadow-sm hover:opacity-90 disabled:opacity-40 transition flex items-center justify-center shrink-0"
+              title="Отправить"
+            >
+              <Send size={15}/>
+            </button>
           </div>
         </div>
+      ) : (
+        <>
+          {/* Список зарегистрированных лицеистов РЛИ */}
+          <div className="card p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-sm flex items-center gap-1.5"><Users size={16} className="text-orange-600"/> Лицеисты РЛИ ({users.length})</span>
+              <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
+                <Radio size={12} className="animate-pulse"/> {onlineUsers.length} онлайн
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-stone-500 bg-stone-100/80 px-2.5 py-1.5 rounded-xl border border-stone-200/50">
+              <span>Вы: <strong className="text-stone-800">{profile?.name}</strong> ({profile?.profileGroup})</span>
+              <span>Лимит: <strong className="text-emerald-600 font-semibold">Без ограничений</strong></span>
+            </div>
+
+            {/* Фильтры и поиск одноклассников */}
+            <div className="space-y-2">
+              <div className="flex bg-stone-100 p-0.5 rounded-xl text-xs font-semibold">
+                <button
+                  onClick={() => setFriendTabFilter('all')}
+                  className={`flex-1 py-1 rounded-lg transition ${friendTabFilter==='all'?'bg-white text-stone-900 shadow-sm':'text-stone-500'}`}
+                >
+                  Все ({availableOpponents.length})
+                </button>
+                <button
+                  onClick={() => setFriendTabFilter('friends')}
+                  className={`flex-1 py-1 rounded-lg transition ${friendTabFilter==='friends'?'bg-white text-stone-900 shadow-sm':'text-stone-500'}`}
+                >
+                  Друзья ⭐ ({profile?.friends?.length || 0})
+                </button>
+                <button
+                  onClick={() => setFriendTabFilter('online')}
+                  className={`flex-1 py-1 rounded-lg transition ${friendTabFilter==='online'?'bg-white text-stone-900 shadow-sm':'text-stone-500'}`}
+                >
+                  В сети 🟢 ({onlineUsers.filter(u => u !== profile?.name).length})
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400"/>
+                <input
+                  value={friendSearch}
+                  onChange={e => setFriendSearch(e.target.value)}
+                  placeholder="Поиск одноклассника..."
+                  className="w-full bg-stone-50 border border-stone-200 rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-orange-400"
+                />
+              </div>
+            </div>
 
         {availableOpponents.length === 0 ? (
           <div className="text-center py-4 space-y-2">
@@ -1909,6 +2164,16 @@ export default function App() {
                     ) : (
                       <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg flex items-center">Друг ⭐</span>
                     )}
+                    <button
+                      onClick={() => {
+                        setChatRecipient(opp.name);
+                        setFriendsTabMode('chat');
+                      }}
+                      className="p-1.5 rounded-lg bg-white border border-stone-200 text-stone-700 hover:text-orange-600 transition shadow-sm"
+                      title={`Написать ${opp.name} в личку`}
+                    >
+                      <MessageCircle size={13}/>
+                    </button>
                     <button
                       onClick={() => sendDuelChallenge(opp.name)}
                       className="gradient-terra text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm hover:opacity-90"
@@ -2140,6 +2405,8 @@ export default function App() {
           </div>
         ))}
       </div>
+        </>
+      )}
     </div>
   );
 
@@ -2290,6 +2557,180 @@ export default function App() {
             );
           })}
         </nav>
+
+        {/* Всплывающий тост-уведомление */}
+        {toast && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-[90%] sm:max-w-[410px] w-full px-3 animate-slide pointer-events-auto">
+            <div className={`p-3 rounded-2xl shadow-2xl flex items-center justify-between gap-3 border ${
+              theme === 'dark' ? 'bg-[#1C1C20] border-orange-500/50 text-white' : 'bg-stone-900 border-stone-800 text-white'
+            }`}>
+              <div className="flex items-center gap-2 text-xs font-medium truncate">
+                <Bell size={16} className="text-orange-500 shrink-0 animate-bounce"/>
+                <span className="truncate">{toast}</span>
+              </div>
+              <button onClick={() => setToast(null)} className="text-stone-400 hover:text-white p-1">
+                <X size={14}/>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Центр уведомлений лицея */}
+        {showNotificationsModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-fade">
+            <div className={`w-full max-w-[400px] rounded-2xl p-5 space-y-4 shadow-2xl border ${
+              theme === 'dark' ? 'bg-[#1C1C20] border-[#2E2E34] text-white' : 'bg-white border-stone-200 text-stone-900'
+            } animate-slide max-h-[85vh] overflow-y-auto`}>
+              <div className="flex items-center justify-between border-b pb-3 border-stone-200/50">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl gradient-terra text-white shadow-sm">
+                    <Bell size={18}/>
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm">Центр уведомлений</h3>
+                    <p className="text-[10px] text-stone-400">События, дуэли и сообщения лицея</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowNotificationsModal(false)}
+                  className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                >
+                  <X size={18}/>
+                </button>
+              </div>
+
+              {/* Входящая дуэль */}
+              {incomingDuelInvite && (
+                <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/40 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Swords size={16} className="text-orange-500 animate-bounce"/>
+                    <span className="text-xs font-bold text-orange-600 dark:text-orange-300">
+                      Вызов на дуэль от {incomingDuelInvite.from}!
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-stone-600 dark:text-stone-300">
+                    Предмет: <strong>{incomingDuelInvite.subject}</strong> • Одинаковая задача
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => {
+                        respondDuelInvite(incomingDuelInvite, true);
+                        setShowNotificationsModal(false);
+                      }}
+                      className="flex-1 gradient-terra text-white text-xs font-bold py-1.5 rounded-lg shadow-sm"
+                    >
+                      Принять вызов
+                    </button>
+                    <button
+                      onClick={() => respondDuelInvite(incomingDuelInvite, false)}
+                      className="px-3 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-semibold py-1.5 rounded-lg"
+                    >
+                      Отклонить
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Входящий запрос в друзья */}
+              {incomingFriendRequest && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <UserPlus size={16} className="text-amber-500"/>
+                    <span className="text-xs font-bold text-amber-600 dark:text-amber-300">
+                      {incomingFriendRequest.from} хочет добавить вас в друзья!
+                    </span>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => respondFriendRequest(incomingFriendRequest.id, true)}
+                      className="flex-1 bg-emerald-600 text-white text-xs font-bold py-1.5 rounded-lg shadow-sm"
+                    >
+                      Принять
+                    </button>
+                    <button
+                      onClick={() => respondFriendRequest(incomingFriendRequest.id, false)}
+                      className="px-3 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-semibold py-1.5 rounded-lg"
+                    >
+                      Отклонить
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Последние сообщения лицейского чата */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="flex items-center gap-1.5 text-stone-700 dark:text-stone-200">
+                    <MessageCircle size={14} className="text-orange-500"/> Лицейский чат
+                  </span>
+                  <button
+                    onClick={() => {
+                      setTab(3);
+                      setFriendsTabMode('chat');
+                      setShowNotificationsModal(false);
+                    }}
+                    className="text-[11px] text-orange-600 hover:underline font-semibold"
+                  >
+                    Открыть чат →
+                  </button>
+                </div>
+
+                {chatMessages.length === 0 ? (
+                  <div className="text-center py-4 text-xs text-stone-400">Сообщений в чате пока нет</div>
+                ) : (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {chatMessages.slice(-4).reverse().map(msg => (
+                      <div key={msg.id} className="p-2 rounded-xl bg-stone-100/70 dark:bg-[#151518] border border-stone-200/50 dark:border-[#2C2C34] text-xs">
+                        <div className="flex items-center justify-between text-[10px] text-stone-400 mb-0.5">
+                          <span className="font-bold text-stone-800 dark:text-stone-200">{msg.from}</span>
+                          <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        <div className="text-stone-600 dark:text-stone-300 line-clamp-2">{msg.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Статус синхронизации и push */}
+              <div className="p-3 rounded-xl bg-stone-100 dark:bg-[#151518] border border-stone-200/60 dark:border-[#2C2C34] space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/>
+                    Синхронизация
+                  </span>
+                  <span className="font-mono text-[10px] text-stone-400">Каждые 2.5 сек</span>
+                </div>
+                <button
+                  onClick={() => {
+                    if ('Notification' in window) {
+                      Notification.requestPermission().then(perm => {
+                        if (perm === 'granted') {
+                          showToast('🔔 Уведомления браузера включены!');
+                        } else {
+                          showToast('ℹ️ Разрешите уведомления в браузере');
+                        }
+                      });
+                    } else {
+                      showToast('⚠️ Браузер не поддерживает Push');
+                    }
+                  }}
+                  className="w-full py-2 px-3 rounded-lg bg-white dark:bg-[#202026] border border-stone-200 dark:border-[#2E2E38] text-stone-700 dark:text-stone-200 font-semibold text-[11px] hover:border-orange-400 flex items-center justify-center gap-1.5 transition shadow-sm"
+                >
+                  <Bell size={13} className="text-orange-500"/>
+                  Включить системные Push-уведомления
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowNotificationsModal(false)}
+                className="w-full bg-stone-900 dark:bg-stone-800 text-white font-semibold py-2.5 rounded-xl text-xs hover:opacity-90 transition"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
