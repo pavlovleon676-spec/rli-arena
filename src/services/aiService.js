@@ -551,10 +551,12 @@ ${rawText}
   }
 }`;
 
-    const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const models = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
     for (const model of models) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const url = apiKey.startsWith('AQ.')
+          ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+          : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
 
@@ -916,11 +918,13 @@ export async function testGeminiPing(overrideKey) {
 
   // 2. Если сервер недоступен, прямой пинг из браузера
   if (!apiKey) return { ok: false, message: 'API-ключ не задан', ms: 0 };
-  const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  const models = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
 
   for (const model of models) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const url = apiKey.startsWith('AQ.')
+        ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+        : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 

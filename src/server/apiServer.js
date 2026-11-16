@@ -703,12 +703,12 @@ ${trimmedText}
   }
 }`;
 
-        const models = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-flash-latest'];
+        const models = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
         let lastFail = 'Неизвестная ошибка';
         for (const model of models) {
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 14000);
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
 
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
@@ -761,7 +761,7 @@ ${trimmedText}
       if (pathname === '/api/ai/ping' && req.method === 'POST') {
         const keyToUse = (payload.apiKey && payload.apiKey.trim().length > 15) ? payload.apiKey.trim() : (process.env.VITE_GEMINI_API_KEY || EMBEDDED_KEY);
         const start = Date.now();
-        const models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'];
+        const models = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
         let lastErr = 'Неизвестная ошибка';
 
         // Проверяем список доступных моделей у Google для данного ключа
