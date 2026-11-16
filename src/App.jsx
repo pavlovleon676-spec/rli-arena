@@ -505,7 +505,7 @@ export default function App() {
 
       const ocrSamples = {
         'Физика': 'Законы постоянного тока и правила Кирхгофа. Сила тока I = U / R. Первое правило Кирхгофа: сумма входящих токов равна сумме выходящих.',
-        'Профмат': 'как решать параметры',
+        'Профмат': 'Уравнения и неравенства с параметрами (Задание 18 ЕГЭ). Графический метод в плоскости (x; a) и исследование знака корней.',
         'Информатика': 'Анализ сложности алгоритмов, бинарный поиск O(log N) и динамическое программирование.'
       };
       if (!noteText.trim()) {
@@ -1758,15 +1758,19 @@ export default function App() {
           )}
 
           {n.formulas?.length > 0 && (
-            <div className="bg-stone-50 rounded-lg px-3 py-2 border border-stone-100 space-y-0.5">
-              {n.formulas.map((f,i) => <div key={i} className="text-xs font-mono text-stone-700 font-medium">{f}</div>)}
+            <div className={`rounded-xl px-3 py-2 border space-y-0.5 ${
+              theme === 'dark' ? 'bg-[#121214] border-[#2A2A30] text-amber-300' : 'bg-stone-50 border-stone-200 text-stone-800'
+            }`}>
+              {n.formulas.map((f,i) => <div key={i} className="text-xs font-mono font-medium">{f}</div>)}
             </div>
           )}
 
           {n.theses?.length > 0 && (
             <div className="space-y-1.5 pt-1">
               {n.theses.map((t,i) => (
-                <div key={i} className="text-xs text-stone-700 bg-stone-50/80 p-2 rounded-lg border border-stone-200/50 leading-relaxed">
+                <div key={i} className={`text-xs p-2 rounded-lg border leading-relaxed ${
+                  theme === 'dark' ? 'bg-[#161618] border-[#2A2A30] text-[#D4D4D8]' : 'bg-stone-50 border-stone-200/60 text-stone-700'
+                }`}>
                   {t}
                 </div>
               ))}
@@ -1774,18 +1778,20 @@ export default function App() {
           )}
 
           {n.quiz && (
-            <div className="bg-stone-50 rounded-xl p-3 space-y-2 border border-stone-100">
+            <div className={`rounded-xl p-3 space-y-2 border ${
+              theme === 'dark' ? 'bg-[#161618] border-[#2A2A30]' : 'bg-stone-50 border-stone-100'
+            }`}>
               <div className="text-xs font-semibold flex items-center gap-1"><Target size={12}/> Мини-проверка темы</div>
-              <div className="text-xs text-stone-700 font-medium">{n.quiz.question}</div>
+              <div className={`text-xs font-medium ${theme === 'dark' ? 'text-stone-300' : 'text-stone-700'}`}>{n.quiz.question}</div>
               <div className="grid grid-cols-2 gap-1.5">
                 {n.quiz.options.map((o,i) => (
                   <button key={i} onClick={() => answerNoteQuiz(n.id, i)} disabled={n.quizDone}
                     className={`text-xs py-2 px-2 rounded-lg border text-left transition font-medium
-                      ${n.quizDone ? (i === n.quiz.correctIndex ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : i === n.quizPicked ? 'border-red-400 bg-red-50 text-red-700' : 'border-stone-100 opacity-40') : 'border-stone-200 hover:border-orange-300 hover:bg-orange-50'}`}
+                      ${n.quizDone ? (i === n.quiz.correctIndex ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400 font-bold' : i === n.quizPicked ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-stone-800 opacity-40') : (theme === 'dark' ? 'border-[#2E2E34] bg-[#1C1C20] text-stone-200 hover:border-orange-500 hover:bg-[#25252B]' : 'border-stone-200 hover:border-orange-300 hover:bg-orange-50')}`}
                   >{o}</button>
                 ))}
               </div>
-              {n.quizDone && <div className="text-xs text-emerald-600 font-semibold flex items-center gap-1"><ArrowUp size={12}/> +15 XP, +5 листов (Практика)</div>}
+              {n.quizDone && <div className="text-xs text-emerald-500 font-semibold flex items-center gap-1"><ArrowUp size={12}/> +15 XP, +5 листов (Практика)</div>}
             </div>
           )}
         </div>
@@ -2032,23 +2038,25 @@ export default function App() {
                       key={ans.id}
                       className={`p-3 rounded-xl border text-xs space-y-1.5 transition ${
                         ans.isAccepted
-                          ? 'bg-emerald-50/70 border-emerald-300'
+                          ? (theme === 'dark' ? 'bg-emerald-950/30 border-emerald-700/60' : 'bg-emerald-50 border-emerald-300')
                           : ans.reported
-                          ? 'bg-amber-50/80 border-amber-300'
-                          : 'bg-stone-50 border-stone-200'
+                          ? (theme === 'dark' ? 'bg-amber-950/30 border-amber-700/60' : 'bg-amber-50 border-amber-300')
+                          : (theme === 'dark' ? 'bg-[#161618] border-[#2A2A30]' : 'bg-stone-50 border-stone-200')
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="font-bold flex items-center gap-1.5">
                           {ans.isAccepted ? (
-                            <span className="text-emerald-800 flex items-center gap-1">
-                              <CheckCircle2 size={13} className="text-emerald-600"/> Принятое решение от {ans.helper}
+                            <span className="text-emerald-500 flex items-center gap-1">
+                              <CheckCircle2 size={13} className="text-emerald-500"/> Принятое решение от {ans.helper}
                             </span>
                           ) : (
-                            <span className="text-stone-800">Решение от {ans.helper}:</span>
+                            <span className={theme === 'dark' ? 'text-stone-200' : 'text-stone-800'}>Решение от {ans.helper}:</span>
                           )}
                           {ans.reported && (
-                            <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                              theme === 'dark' ? 'bg-amber-900/60 text-amber-300 border border-amber-700/60' : 'bg-amber-100 text-amber-800'
+                            }`}>
                               ⏳ На проверке Совета Лицея
                             </span>
                           )}
@@ -2078,20 +2086,30 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className={`leading-relaxed ${ans.toxicConfirmed ? 'italic text-red-600' : 'text-stone-700'}`}>
+                      <div className={`leading-relaxed ${
+                        ans.toxicConfirmed
+                          ? 'italic text-red-400'
+                          : (theme === 'dark' ? 'text-stone-200' : 'text-stone-700')
+                      }`}>
                         {ans.text}
                       </div>
 
                       {/* Панель модератора для Совета Лицея (Леонид) */}
                       {isAdmin && ans.reported && (
-                        <div className="pt-2 mt-1 border-t border-amber-200/80 flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-amber-900 flex items-center gap-1">
-                            <ShieldCheck size={12} className="text-amber-700"/> Совет Лицея:
+                        <div className={`pt-2 mt-1 border-t flex items-center justify-between ${
+                          theme === 'dark' ? 'border-amber-800/50' : 'border-amber-200/80'
+                        }`}>
+                          <span className={`text-[10px] font-bold flex items-center gap-1 ${
+                            theme === 'dark' ? 'text-amber-400' : 'text-amber-900'
+                          }`}>
+                            <ShieldCheck size={12} className={theme === 'dark' ? 'text-amber-400' : 'text-amber-700'}/> Совет Лицея:
                           </span>
                           <div className="flex gap-1.5">
                             <button
                               onClick={() => moderateSosAnswer(r.id, ans.id, 'approve')}
-                              className="px-2 py-1 bg-white border border-stone-300 text-stone-700 rounded-lg text-[10px] font-semibold hover:bg-stone-100 transition shadow-sm"
+                              className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition shadow-sm ${
+                                theme === 'dark' ? 'bg-[#2A2A30] border border-[#3E3E48] text-stone-200 hover:bg-[#34343C]' : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-100'
+                              }`}
                             >
                               Одобрить (нет нарушений)
                             </button>
@@ -2130,36 +2148,74 @@ export default function App() {
     <div className="space-y-4 animate-fade">
       <h2 className="text-lg font-extrabold flex items-center gap-2"><Activity size={20} className="text-orange-600"/> Система</h2>
 
-      <div className={`card p-4 flex items-center gap-3 ${hasKey?'border-emerald-200':'border-amber-200'}`}>
-        {hasKey ? <Wifi size={20} className="text-emerald-500"/> : <Brain size={20} className="text-orange-500"/>}
+      <div className={`card p-4 flex items-center gap-3 ${hasKey ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-amber-500/40'}`}>
+        <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
+          <Wifi size={20}/>
+        </div>
         <div className="flex-1">
-          <div className="text-sm font-bold text-stone-800">
-            {hasKey ? 'Gemini 2.0 Flash + Динамический движок РЛИ' : 'Умный процедурный ИИ-движок РЛИ'}
+          <div className="text-sm font-bold flex items-center gap-1.5">
+            <span>Облачный ИИ Google Gemini 2.0 Flash</span>
+            <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full font-bold">Сервер РЛИ активен</span>
           </div>
-          <div className="text-xs text-stone-500">
-            {hasKey ? 'Генерация задач и конспектов через облако Google AI' : 'Динамическая генерация уникальных задач с новыми числами'}
+          <div className="text-xs text-stone-400 mt-0.5 leading-snug">
+            Встроенный ключ лицея работает для всех участников автоматически (включая клиентов из РФ без VPN).
           </div>
         </div>
-        <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"/>
+      </div>
+
+      {/* Пояснение архитектуры движков */}
+      <div className="card p-4 space-y-2.5">
+        <div className="text-xs font-bold text-orange-500 uppercase tracking-wider flex items-center gap-1.5">
+          <Brain size={14}/> Как устроена генерация в RLI Arena
+        </div>
+        <div className="grid grid-cols-1 gap-2 text-xs">
+          <div className={`p-2.5 rounded-xl border ${theme === 'dark' ? 'bg-[#161618] border-[#2A2A30]' : 'bg-stone-50 border-stone-200'}`}>
+            <div className="font-bold text-stone-200 flex items-center gap-1.5">
+              <span>⚔️ Дуэли и Тренировки:</span>
+              <span className="text-[10px] text-emerald-400 font-mono">0.01 сек (Zero-Lag)</span>
+            </div>
+            <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+              Задачи генерируются встроенным алгоритмическим движком ФИПИ и олимпиад РЛИ с динамической подстановкой физических величин. Это исключает сетевые задержки и лимиты API во время живых боев 1 на 1.
+            </p>
+          </div>
+          <div className={`p-2.5 rounded-xl border ${theme === 'dark' ? 'bg-[#161618] border-[#2A2A30]' : 'bg-stone-50 border-stone-200'}`}>
+            <div className="font-bold text-stone-200 flex items-center gap-1.5">
+              <span>📖 Оцифровка конспектов:</span>
+              <span className="text-[10px] text-orange-400 font-mono">Google Gemini Flash</span>
+            </div>
+            <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
+              Обрабатывается нейросетью Google Gemini: извлекает рукописные формулы, составляет конспект уровня ФИПИ и генерирует проверочный тест. Работает через безопасный облачный сервер.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="card p-4 space-y-3">
-        <div className="text-sm font-semibold flex items-center gap-1.5"><Key size={14}/> Google Gemini AI API-ключ</div>
-        <p className="text-xs text-stone-500 leading-relaxed">
-          Бесплатный ключ от <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="text-orange-600 underline font-semibold">aistudio.google.com</a> (начинается с <code>AIzaSy...</code>). Позволяет подключить облачную модель Gemini 2.0 Flash. Без ключа Арена работает автономно на лицейском офлайн-движке ФИПИ (Smart Local).
+        <div className="text-sm font-semibold flex items-center gap-1.5"><Key size={14}/> Персональный API-ключ Gemini (опционально)</div>
+        <p className="text-xs text-stone-400 leading-relaxed">
+          Общий ключ РЛИ уже работает для всех по умолчанию! Если вы хотите использовать собственную персональную квоту от <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="text-orange-500 underline font-semibold">aistudio.google.com</a> (начинается с <code>AQ...</code> или <code>AIzaSy...</code>), укажите ключ ниже:
         </p>
-        <input value={apiInput} onChange={e => setApiInput(e.target.value)} placeholder="AIzaSy... (Ключ Google AI Studio)" className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-orange-300"/>
+        <input
+          value={apiInput}
+          onChange={e => setApiInput(e.target.value)}
+          placeholder="Опционально: персональный ключ (AQ... или AIzaSy...)"
+          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-orange-300"
+        />
         <div className="flex gap-2">
-          <button onClick={saveKey} disabled={!apiInput.trim()} className="flex-1 gradient-terra text-white text-xs font-semibold py-2.5 rounded-xl disabled:opacity-50 flex items-center justify-center gap-1">
+          <button onClick={saveKey} disabled={!apiInput.trim()} className="flex-1 gradient-terra text-white text-xs font-semibold py-2.5 rounded-xl disabled:opacity-50 flex items-center justify-center gap-1 shadow-sm">
             <Check size={14}/> Сохранить свой ключ
           </button>
-          <button onClick={pingGemini} className="flex-1 gradient-emerald text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1">
+          <button onClick={pingGemini} className="flex-1 gradient-emerald text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1 shadow-sm">
             <Zap size={14}/> Тест API
           </button>
         </div>
         {testResult && (
-          <div className={`text-xs rounded-lg px-3 py-2 ${testResult.ok?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-600'}`}>
-            {testResult.ok ? `OK (${testResult.ms}мс): ${testResult.message}` : `Ошибка: ${testResult.message}`}
+          <div className={`text-xs rounded-xl px-3 py-2.5 border ${
+            testResult.ok
+              ? (theme === 'dark' ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-800')
+              : (theme === 'dark' ? 'bg-red-950/40 border-red-700/60 text-red-300' : 'bg-red-50 border-red-200 text-red-700')
+          }`}>
+            {testResult.ok ? `✓ OK (${testResult.ms}мс): ${testResult.message}` : `⚠ Ошибка: ${testResult.message}`}
           </div>
         )}
       </div>

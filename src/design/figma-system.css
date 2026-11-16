@@ -84,17 +84,23 @@ body { font-family: var(--font-sans); background: var(--color-graphite); color: 
   --color-border-card: #27272A;
   --color-card: #1C1C20;
 }
+.theme-dark [class*="bg-stone-50"],
 .theme-dark .bg-stone-50 {
   background-color: #161618 !important;
   color: #E4E4E7 !important;
+  border-color: #2A2A30 !important;
 }
+.theme-dark [class*="bg-stone-100"],
 .theme-dark .bg-stone-100 {
-  background-color: #232328 !important;
-  color: #D4D4D8 !important;
+  background-color: #202024 !important;
+  color: #E4E4E7 !important;
+  border-color: #2E2E34 !important;
 }
+.theme-dark [class*="bg-stone-200"],
 .theme-dark .bg-stone-200 {
-  background-color: #2F2F36 !important;
+  background-color: #28282E !important;
   color: #D4D4D8 !important;
+  border-color: #383842 !important;
 }
 .theme-dark .bg-white {
   background-color: #1C1C20 !important;
@@ -125,25 +131,35 @@ body { font-family: var(--font-sans); background: var(--color-graphite); color: 
 .theme-dark .text-stone-400 {
   color: #71717A !important;
 }
+.theme-dark [class*="border-stone-100"],
+.theme-dark [class*="border-stone-200"],
 .theme-dark .border-stone-100,
 .theme-dark .border-stone-200 {
   border-color: #2E2E34 !important;
 }
+.theme-dark [class*="bg-emerald-50"],
 .theme-dark .bg-emerald-50 {
   background-color: rgba(6, 78, 59, 0.25) !important;
-  border-color: rgba(16, 185, 129, 0.3) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  color: #A7F3D0 !important;
 }
+.theme-dark [class*="bg-amber-50"],
 .theme-dark .bg-amber-50 {
   background-color: rgba(180, 83, 9, 0.2) !important;
-  border-color: rgba(245, 158, 11, 0.3) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+  color: #FDE68A !important;
 }
+.theme-dark [class*="bg-orange-50"],
 .theme-dark .bg-orange-50 {
   background-color: rgba(194, 65, 12, 0.2) !important;
-  border-color: rgba(234, 88, 12, 0.3) !important;
+  border-color: rgba(234, 88, 12, 0.35) !important;
+  color: #FED7AA !important;
 }
+.theme-dark [class*="bg-red-50"],
 .theme-dark .bg-red-50 {
   background-color: rgba(185, 28, 28, 0.2) !important;
-  border-color: rgba(239, 68, 68, 0.3) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  color: #FCA5A5 !important;
 }
 
 /* ---------- Фокус (доступность) ---------- */

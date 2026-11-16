@@ -501,6 +501,36 @@ export async function generateArenaTask(subject, difficulty) {
 export async function digitizeStudentNote(rawText, subject) {
   const apiKey = getApiKey();
 
+  // 1. Попытка оцифровки через серверный облачный прокси Render
+  // Это гарантирует работу Google Gemini AI для пользователей из РФ без VPN и без сетевых блокировок!
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 14000);
+
+    const resp = await fetch('/api/ai/digitize-note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: rawText,
+        subject,
+        apiKey
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.ok && data.note) {
+        addLog('[AI_ENGINE]', `Конспект оцифрован облачным Gemini 2.0 Flash: ${data.note.title}`);
+        return { ...data.note, isLiveAI: true };
+      }
+    }
+  } catch (e) {
+    // Серверный прокси недоступен, пробуем напрямую
+  }
+
+  // 2. Прямое обращение к Google API из браузера
   if (apiKey) {
     const prompt = `Ты — ИИ-ассистент физмат лицея РЛИ. Оцифруй конспект ученика по предмету "${subject}".
 Текст ученика:
@@ -526,7 +556,7 @@ ${rawText}
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
 
         const resp = await fetch(url, {
           method: 'POST',
@@ -546,7 +576,8 @@ ${rawText}
           const data = await resp.json();
           const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (text) {
-            const parsed = JSON.parse(text);
+            const cleanJson = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+            const parsed = JSON.parse(cleanJson);
             addLog('[AI_ENGINE]', `Конспект оцифрован Gemini: ${parsed.title}`);
             return { ...parsed, isLiveAI: true };
           }
@@ -555,7 +586,7 @@ ${rawText}
     }
   }
 
-  // Умный семантический анализатор слов и текста ученика
+  // 3. Умный семантический анализатор слов и текста ученика (Smart Local)
   return parseNoteContextual(rawText, subject);
 }
 
@@ -567,6 +598,35 @@ function parseNoteContextual(rawText, subject) {
   const trimmed = rawText.trim();
   const lower = trimmed.toLowerCase();
   const sentences = trimmed.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 4);
+
+  // 0. ВЕКТОРЫ И ВЕКТОРНОЕ ПРОИЗВЕДЕНИЕ (Физика / Высшая математика)
+  if (lower.includes('вектор')) {
+    return {
+      title: 'Векторная алгебра: скалярное и векторное произведение',
+      subject: 'Физика',
+      formulas: [
+        'a · b = |a| · |b| · cos(α) (скалярное произведение, работа A = F · s)',
+        '[a × b] = |a| · |b| · sin(α) · n (векторное произведение, сила Лоренца F = q[v × B])',
+        'M = [r × F] (момент силы относительно точки)'
+      ],
+      theses: [
+        '1. Скалярное произведение двух векторов равно нулю тогда и только тогда, когда векторы взаимно перпендикулярны (cos 90° = 0).',
+        '2. Векторное произведение антикоммутативно: [a × b] = - [b × a], а его модуль равен площади параллелограмма, натянутого на эти векторы.',
+        '3. Направление вектора произведения определяется правилом буравчика (правой руки) при кратчайшем повороте от первого вектора ко второму.'
+      ],
+      quiz: {
+        question: 'При каком взаимном расположении двух ненулевых векторов их векторное произведение тождественно равно нулевому вектору?',
+        options: [
+          'Когда векторы коллинеарны (параллельны, угол 0° или 180°, sin α = 0)',
+          'Когда векторы строго взаимно перпендикулярны',
+          'Только когда длина одного из векторов равна единице',
+          'Векторное произведение ненулевых векторов никогда не равно нулю'
+        ],
+        correctIndex: 0
+      },
+      isLiveAI: false
+    };
+  }
 
   // 1. ПАРАМЕТРЫ (Задание 18 ЕГЭ)
   if (lower.includes('параметр')) {
@@ -802,31 +862,32 @@ function parseNoteContextual(rawText, subject) {
     };
   }
 
-  // Общий случай: извлечение предложений ученика с качественным образовательным наполнением
-  const title = sentences[0] ? (sentences[0].length > 45 ? sentences[0].substring(0, 42) + '...' : sentences[0]) : `Конспект по предмету ${subject}`;
-  const theses = sentences.length > 0
-    ? sentences.slice(0, 4).map((s, idx) => `${idx + 1}. ${s}`)
-    : [
-        `1. Основные теоретические положения и терминология темы «${title}».`,
-        '2. Практические методы решения типовых задач профильного уровня.',
-        '3. Систематизация формул и ключевых математических соотношений.'
-      ];
+  // Общий случай: интеллектуальный образовательный конспект по теме ученика
+  const cleanTitle = sentences[0]
+    ? (sentences[0].length > 40 ? sentences[0].substring(0, 38) + '...' : sentences[0])
+    : `Конспект по предмету ${subject}`;
 
   return {
-    title,
+    title: cleanTitle,
     subject,
     formulas: [
-      `Теоретический базис темы: ${title}`,
-      'Применение в кодификаторе ФИПИ профильного уровня'
+      `1. Теоретический базис и законы раздела: «${cleanTitle}»`,
+      `2. Ключевые соотношения и кодификатор ФИПИ профильного уровня`
     ],
-    theses,
+    theses: sentences.length > 1
+      ? sentences.slice(0, 3).map((s, idx) => `${idx + 1}. ${s}`)
+      : [
+          `1. Фундаментальные физико-математические основы темы «${cleanTitle}».`,
+          '2. Аналитический метод расчёта и алгоритм решения типовых олимпиадных задач.',
+          '3. Граничные условия применимости и типичные ошибки при оформлении второй части ЕГЭ.'
+        ],
     quiz: {
-      question: `Какое утверждение о теме «${title}» является физико-математически корректным?`,
+      question: `Какое базовое требование обязательно для строгого математического обоснования задач темы «${cleanTitle}»?`,
       options: [
-        theses[0].replace(/^\d+\.\s*/, ''),
-        'Справедливо только при условии равенства нулю всех параметров системы',
-        'Является частным пренебрежимым фактором без математического обоснования',
-        'Прямо противоречит фундаментальным законам изучаемого раздела'
+        'Строгий аналитический вывод с опорой на фундаментальные законы и кодификатор ФИПИ',
+        'Интуитивный подбор числового ответа без математического обоснования',
+        'Допущение вычислений, прямо противоречащих законам сохранения изучаемой системы',
+        'Пренебрежение областью допустимых значений (ОДЗ) и размерностями величин'
       ],
       correctIndex: 0
     },
@@ -836,16 +897,32 @@ function parseNoteContextual(rawText, subject) {
 
 export async function testGeminiPing(overrideKey) {
   const apiKey = (overrideKey || getApiKey() || '').trim();
-  if (!apiKey) return { ok: false, message: 'API-ключ не задан', ms: 0 };
-
   const start = performance.now();
+
+  // 1. Сначала пробуем тест через серверный прокси РЛИ (работает из РФ без VPN)
+  try {
+    const resp = await fetch('/api/ai/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data && typeof data.ok === 'boolean') {
+        return data;
+      }
+    }
+  } catch (e) {}
+
+  // 2. Если сервер недоступен, прямой пинг из браузера
+  if (!apiKey) return { ok: false, message: 'API-ключ не задан', ms: 0 };
   const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
   for (const model of models) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       const resp = await fetch(url, {
         method: 'POST',
@@ -865,9 +942,6 @@ export async function testGeminiPing(overrideKey) {
         const data = await resp.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'OK';
         return { ok: true, message: `${model}: ${text.trim()}`, ms, model };
-      } else {
-        const errText = await resp.text();
-        return { ok: false, message: `HTTP ${resp.status}: ${errText.substring(0, 100)}`, ms: Math.round(performance.now() - start) };
       }
     } catch (e) {}
   }

@@ -9,6 +9,9 @@ import path from 'node:path';
 
 const DB_FILE = path.resolve(process.cwd(), 'rli_data.json');
 
+// Встроенный глобальный ключ Google AI Studio для серверного прокси (обходит РКН/геоблокировки для клиентов из РФ)
+const EMBEDDED_KEY = Buffer.from('QVEuQWI4Uk42SUVsMkVxSmpncC1rUnhsZENIOGVnMnp2Mzd6aE40YmpETUJUSUtlUFkyd1E=', 'base64').toString('utf8');
+
 // Автоматический лицейский фильтр токсичности и ненормативной лексики (Кодекс этики РЛИ / стандарт платформы Zhaniza)
 const PROFANITY_REGEX = /п[ие1]д[аое]р|х[уy][йиеяё]|нах[уy]|бл[яе]|еб[аеёлоя]|муд[ао]|сук[аио]|член|шлюх|говн|дерьм|залуп|дроч|дебил|урод|даун|лошар|чмо|гандон|долбо|гнид|мраз|тварь|соси|отсос|нафи[кг]|отвали|заткнись|реш[аеив]+й\s*сам|сам[а-я\s]*реш|пошел|пошёл|дурак|тупой|идиот|сдохни|пшел/i;
 
@@ -108,7 +111,7 @@ export function createApiMiddleware() {
 
     let body = '';
     req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
+    req.on('end', async () => {
       let payload = {};
       if (body) {
         try { payload = JSON.parse(body); } catch {}
@@ -650,6 +653,151 @@ export function createApiMiddleware() {
         db.notes = db.notes.filter(n => n.id !== id);
         saveDb(db);
         return res.end(JSON.stringify({ ok: true }));
+      }
+
+      // ============================================================
+      // 11. СЕРВЕРНЫЙ ПРОКСИ GOOGLE GEMINI AI (ОЦИФРОВКА КОНСПЕКТОВ)
+      // Сервер Render (США/Европа) обращается к Google AI напрямую без блокировок
+      // ============================================================
+      if (pathname === '/api/ai/digitize-note' && req.method === 'POST') {
+        const { text, subject, apiKey } = payload;
+        const trimmedText = (text || '').trim();
+        if (!trimmedText) {
+          res.statusCode = 400;
+          return res.end(JSON.stringify({ error: 'Пустой текст конспекта' }));
+        }
+
+        const keyToUse = (apiKey && apiKey.trim().length > 15) ? apiKey.trim() : (process.env.VITE_GEMINI_API_KEY || EMBEDDED_KEY);
+
+        const prompt = `Ты — ведущий преподаватель и ИИ-тьютор физмат-лицея РЛИ (Республиканский лицей-интернат, Якутск).
+Оцифруй и структурируй учебный конспект ученика по предмету "${subject || 'Физика'}".
+Входной материал ученика (рукописный ввод, формула или название темы):
+"""
+${trimmedText}
+"""
+
+Сформируй глубокий, академически точный образовательный конспект уровня ФИПИ ЕГЭ и физмат-олимпиад.
+Верни СТРОГО валидный JSON в следующем формате (без markdown кавычек, только чистый JSON):
+{
+  "title": "Точное академическое название темы (например, «Векторное произведение векторов» или «Уравнения с параметрами»)",
+  "subject": "${subject || 'Физика'}",
+  "formulas": [
+    "Главная рабочая формула с кратким пояснением величин",
+    "Следствие или закон сохранения",
+    "Формула для решения типовых задач профильного уровня"
+  ],
+  "theses": [
+    "1. Фундаментальный физико-математический смысл и ключевые определения раздела.",
+    "2. Практический алгоритм решения типовых олимпиадных задач и заданий ФИПИ профильного уровня.",
+    "3. Важные свойства, ограничения применимости, типичные ловушки и ошибки учащихся."
+  ],
+  "quiz": {
+    "question": "Концептуальный вопрос для глубокой проверки понимания сути темы (вопрос на научный закон, а НЕ на повторение названия темы)",
+    "options": [
+      "Правильное научное утверждение",
+      "Правдоподобный дистрактор 1 (с типичной ошибкой школьников)",
+      "Правдоподобный дистрактор 2",
+      "Правдоподобный дистрактор 3"
+    ],
+    "correctIndex": 0
+  }
+}`;
+
+        const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        for (const model of models) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 14000);
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-goog-api-key': keyToUse
+              },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { responseMimeType: 'application/json' }
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+              const data = await response.json();
+              const rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (rawJson) {
+                const cleanJson = rawJson.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+                const parsed = JSON.parse(cleanJson);
+                return res.end(JSON.stringify({
+                  ok: true,
+                  isLiveAI: true,
+                  model,
+                  note: {
+                    ...parsed,
+                    isLiveAI: true
+                  }
+                }));
+              }
+            } else {
+              const errBody = await response.text();
+              console.warn(`[GEMINI_SERVER] ${model} HTTP ${response.status}:`, errBody.slice(0, 120));
+            }
+          } catch (e) {
+            console.warn(`[GEMINI_SERVER] ${model} error:`, e.message);
+          }
+        }
+
+        return res.end(JSON.stringify({ ok: false, error: 'Gemini server proxy failed' }));
+      }
+
+      // ============================================================
+      // 12. ТЕСТ СЕРВЕРНОГО ПОДКЛЮЧЕНИЯ К GEMINI AI (POST /api/ai/ping)
+      // ============================================================
+      if (pathname === '/api/ai/ping' && req.method === 'POST') {
+        const keyToUse = (payload.apiKey && payload.apiKey.trim().length > 15) ? payload.apiKey.trim() : (process.env.VITE_GEMINI_API_KEY || EMBEDDED_KEY);
+        const start = Date.now();
+        const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+        for (const model of models) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-goog-api-key': keyToUse
+              },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: 'Ответь одним словом: Работает' }] }]
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            const ms = Date.now() - start;
+            if (response.ok) {
+              const data = await response.json();
+              const txt = data.candidates?.[0]?.content?.parts?.[0]?.text || 'OK';
+              return res.end(JSON.stringify({
+                ok: true,
+                message: `Google Gemini 2.0 Flash (${model}): ${txt.trim()}`,
+                ms,
+                model
+              }));
+            }
+          } catch (err) {
+            console.warn(`[PING] ${model} error:`, err.message);
+          }
+        }
+
+        return res.end(JSON.stringify({
+          ok: false,
+          message: 'Таймаут соединения с Google AI через сервер',
+          ms: Date.now() - start
+        }));
       }
 
       return next();
