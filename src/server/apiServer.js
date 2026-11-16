@@ -703,13 +703,16 @@ ${trimmedText}
   }
 }`;
 
-        const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        const models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'];
         for (const model of models) {
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 14000);
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keyToUse)}`;
+            const url = keyToUse.startsWith('AQ.')
+              ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+              : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keyToUse)}`;
+
             const response = await fetch(url, {
               method: 'POST',
               headers: {
@@ -758,15 +761,40 @@ ${trimmedText}
       if (pathname === '/api/ai/ping' && req.method === 'POST') {
         const keyToUse = (payload.apiKey && payload.apiKey.trim().length > 15) ? payload.apiKey.trim() : (process.env.VITE_GEMINI_API_KEY || EMBEDDED_KEY);
         const start = Date.now();
-        const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        const models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'];
         let lastErr = 'Неизвестная ошибка';
+
+        // Проверяем список доступных моделей у Google для данного ключа
+        try {
+          const listRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+            method: 'GET',
+            headers: { 'X-goog-api-key': keyToUse }
+          });
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            const available = (listData.models || [])
+              .map(m => m.name.replace('models/', ''))
+              .filter(m => m.includes('flash') || m.includes('pro'));
+            return res.end(JSON.stringify({
+              ok: true,
+              message: `Доступные модели: ${available.slice(0, 5).join(', ')}`,
+              ms: Date.now() - start,
+              available
+            }));
+          } else {
+            const errTxt = await listRes.text();
+            lastErr = `ListModels HTTP ${listRes.status}: ${errTxt.slice(0, 150)}`;
+          }
+        } catch (e) {
+          lastErr = `ListModels Error: ${e.message}`;
+        }
 
         for (const model of models) {
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keyToUse)}`;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
             const response = await fetch(url, {
               method: 'POST',
               headers: {
