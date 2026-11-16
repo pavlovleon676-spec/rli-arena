@@ -14,9 +14,9 @@ import {
   Play, TrendingUp, Activity, BookMarked, Lightbulb, Camera, Upload,
   Trash2, UserPlus, UserCheck, User, LogOut, QrCode, Smartphone,
   CheckCircle2, Bell, Radio, Copy, Share2, Flag, Sun, Moon, ShieldCheck,
-  Image as ImageIcon
+  Image as ImageIcon, BellOff, Volume2, VolumeX
 } from 'lucide-react';
-import { calculateNewElo, checkAntiCheat, calculateEcoMetrics, getRankTitle, getWinRate, getUserLevel, containsProfanity } from './engine/coreEngine';
+import { calculateNewElo, checkAntiCheat, calculateEcoMetrics, getRankTitle, getWinRate, getUserLevel, containsProfanity, isSpamText } from './engine/coreEngine';
 import { generateArenaTask, digitizeStudentNote, getApiKey, testGeminiPing, saveApiKey } from './services/aiService';
 import { loadState, saveState, onStateChange, resetState, addLog, getLogs, RLI_PROFILES } from './services/storageSync';
 
@@ -54,12 +54,90 @@ export default function App() {
   const lastDuelInviteIdRef = useRef(null);
   const chatBottomRef = useRef(null);
 
+  // Режим уведомлений ("Не беспокоить" / Вкл / Выкл)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => localStorage.getItem('RLI_NOTIFICATIONS_ENABLED') !== 'false');
+  const toggleNotifications = () => {
+    setNotificationsEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('RLI_NOTIFICATIONS_ENABLED', String(next));
+      if (!next) setToast(null);
+      return next;
+    });
+  };
+
+  // Локальный черный список пользователей (скрыть спамеров для себя)
+  const [mutedUsersLocal, setMutedUsersLocal] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('RLI_MUTED_USERS') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleLocalMute = (userName) => {
+    if (!userName) return;
+    const lower = userName.toLowerCase();
+    setMutedUsersLocal(prev => {
+      const next = prev.includes(lower) ? prev.filter(u => u !== lower) : [...prev, lower];
+      localStorage.setItem('RLI_MUTED_USERS', JSON.stringify(next));
+      return next;
+    });
+    const isNowMuted = !mutedUsersLocal.includes(userName.toLowerCase());
+    if (isNowMuted) {
+      alert(`🔇 Пользователь ${userName} заглушен для вас (его сообщения скрыты).`);
+    } else {
+      alert(`🔊 Пользователь ${userName} снова отображается.`);
+    }
+  };
+
   const showToast = useCallback((text) => {
+    if (!notificationsEnabled) return;
     setToast(text);
     setTimeout(() => {
       setToast(prev => prev === text ? null : prev);
     }, 4500);
-  }, []);
+  }, [notificationsEnabled]);
+
+  // Модерация Совета Лицея (Леонид)
+  const adminMuteUser = async (targetUser, durationMin = 15) => {
+    if (!isAdmin) return;
+    if (!confirm(`Совет Лицея: Заглушить ${targetUser} на ${durationMin} минут за нарушение порядка (-25 ELO)?`)) return;
+    try {
+      const res = await fetch('/api/chat/mute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin: profile?.name,
+          targetUser,
+          durationMin
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(`🛡️ ${targetUser} заглушен на ${durationMin} мин.`);
+      } else {
+        alert(data.error || 'Ошибка');
+      }
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const deleteChatMessage = async (messageId) => {
+    try {
+      await fetch('/api/chat/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin: profile?.name,
+          messageId
+        })
+      });
+      setChatMessages(prev => prev.filter(m => m.id !== messageId));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Авторизация / Регистрация (открыта, если пользователь не вошел)
   const [isAuthOpen, setIsAuthOpen] = useState(() => !localStorage.getItem('RLI_CURRENT_USER'));
@@ -246,8 +324,9 @@ export default function App() {
             setChatMessages(data.chatMessages);
             if (data.chatMessages.length > 0) {
               const last = data.chatMessages[data.chatMessages.length - 1];
-              if (last && lastChatIdRef.current && last.id !== lastChatIdRef.current && last.from.toLowerCase() !== (userName || '').toLowerCase()) {
-                showToast(`💬 ${last.from}: ${last.text.slice(0, 40)}`);
+              const isMuted = mutedUsersLocal.includes(last.from?.toLowerCase());
+              if (last && lastChatIdRef.current && last.id !== lastChatIdRef.current && last.from.toLowerCase() !== (userName || '').toLowerCase() && !isMuted) {
+                showToast(`💬 ${last.from}: ${last.text.slice(0, 35)}`);
               }
               lastChatIdRef.current = last.id;
             }
@@ -372,6 +451,12 @@ export default function App() {
   const sendChatMessage = async (presetText) => {
     const textToSend = (presetText || chatInput).trim();
     if (!textToSend) return;
+
+    if (isSpamText(textToSend)) {
+      alert('Пожалуйста, не спамьте повторяющимися символами.');
+      return;
+    }
+
     if (containsProfanity(textToSend)) {
       alert('Сообщение содержит некорректные выражения (Кодекс этики РЛИ).');
       return;
@@ -390,7 +475,7 @@ export default function App() {
     setChatInput('');
 
     try {
-      await fetch('/api/chat/send', {
+      const resp = await fetch('/api/chat/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -399,6 +484,12 @@ export default function App() {
           text: textToSend
         })
       });
+      const data = await resp.json();
+      if (!resp.ok) {
+        alert(data.error || 'Не удалось отправить сообщение');
+        setChatMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+        return;
+      }
       addLog('[CHAT]', `Отправлено сообщение (${chatRecipient}): ${textToSend.slice(0, 30)}`);
     } catch (e) {
       console.warn('[CHAT] Ошибка:', e.message);
@@ -1091,10 +1182,10 @@ export default function App() {
             <button
               onClick={() => setShowNotificationsModal(true)}
               className="relative p-1.5 bg-white border border-stone-200 rounded-xl text-stone-700 hover:text-orange-600 transition shadow-sm"
-              title="Центр уведомлений лицея"
+              title={notificationsEnabled ? 'Центр уведомлений лицея' : 'Уведомления отключены (Тихий режим)'}
             >
-              <Bell size={16}/>
-              {(incomingDuelInvite || incomingFriendRequest || chatMessages.length > 0) && (
+              {notificationsEnabled ? <Bell size={16}/> : <BellOff size={16} className="text-stone-400"/>}
+              {notificationsEnabled && (incomingDuelInvite || incomingFriendRequest || chatMessages.length > 0) && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-extrabold flex items-center justify-center animate-pulse">
                   {(incomingDuelInvite ? 1 : 0) + (incomingFriendRequest ? 1 : 0) + (chatMessages.length > 0 ? 1 : 0)}
                 </span>
@@ -2012,14 +2103,62 @@ export default function App() {
               chatMessages
                 .filter(m => chatRecipient === 'all' ? (m.to === 'all' || !m.to) : ((m.from?.toLowerCase() === profile?.name?.toLowerCase() && m.to?.toLowerCase() === chatRecipient?.toLowerCase()) || (m.from?.toLowerCase() === chatRecipient?.toLowerCase() && m.to?.toLowerCase() === profile?.name?.toLowerCase())))
                 .map(msg => {
+                  if (msg.isSystem) {
+                    return (
+                      <div key={msg.id} className="text-center py-1">
+                        <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                          {msg.text}
+                        </span>
+                      </div>
+                    );
+                  }
+
                   const isMe = msg.from?.toLowerCase() === profile?.name?.toLowerCase();
+                  const isMutedLocally = mutedUsersLocal.includes(msg.from?.toLowerCase());
                   const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                  if (isMutedLocally) {
+                    return (
+                      <div key={msg.id} className="text-[10px] text-stone-400 italic py-1 px-2.5 bg-stone-100 dark:bg-stone-900 rounded-xl flex items-center justify-between border border-stone-200/40">
+                        <span>Сообщение от скрытого пользователя ({msg.from})</span>
+                        <button onClick={() => toggleLocalMute(msg.from)} className="text-stone-500 hover:text-stone-700 dark:text-stone-300 underline font-medium">Показать</button>
+                      </div>
+                    );
+                  }
+
                   return (
-                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group`}>
                       <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-stone-400 px-1">
-                        <span className="font-bold text-stone-700">{msg.from}</span>
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-stone-200/80 font-semibold">{msg.profileGroup || 'Физмат'}</span>
+                        <span className="font-bold text-stone-700 dark:text-stone-300">{msg.from}</span>
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-stone-200/80 dark:bg-stone-800 font-semibold">{msg.profileGroup || 'Физмат'}</span>
                         <span>{timeStr}</span>
+                        {!isMe && (
+                          <button
+                            onClick={() => toggleLocalMute(msg.from)}
+                            className="text-stone-400 hover:text-red-500 opacity-60 hover:opacity-100 p-0.5 transition"
+                            title="Скрыть этого пользователя для себя"
+                          >
+                            <BellOff size={10}/>
+                          </button>
+                        )}
+                        {isAdmin && !isMe && (
+                          <button
+                            onClick={() => adminMuteUser(msg.from, 15)}
+                            className="text-amber-500 hover:text-amber-600 font-bold text-[9px] px-1 rounded bg-amber-500/10 border border-amber-500/20"
+                            title="Заглушить нарушителя на 15 мин (-25 ELO)"
+                          >
+                            Мут 15м
+                          </button>
+                        )}
+                        {(isAdmin || isMe) && (
+                          <button
+                            onClick={() => deleteChatMessage(msg.id)}
+                            className="text-stone-400 hover:text-red-500 p-0.5 transition opacity-60 hover:opacity-100"
+                            title="Удалить сообщение"
+                          >
+                            <Trash2 size={10}/>
+                          </button>
+                        )}
                       </div>
                       <div className={`p-2.5 rounded-2xl max-w-[85%] break-words text-xs shadow-sm ${
                         isMe
@@ -2487,6 +2626,29 @@ export default function App() {
         )}
       </div>
 
+      {/* Настройки уведомлений и режим "Не беспокоить" */}
+      <div className="card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {notificationsEnabled ? <Bell size={16} className="text-orange-500"/> : <BellOff size={16} className="text-stone-400"/>}
+            <span className="text-sm font-semibold">Уведомления и всплывающие плашки</span>
+          </div>
+          <button
+            onClick={toggleNotifications}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
+              notificationsEnabled ? 'gradient-terra text-white' : 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+            }`}
+          >
+            {notificationsEnabled ? 'ВКЛ' : 'ВЫКЛ'}
+          </button>
+        </div>
+        <p className="text-[11px] text-stone-500 leading-relaxed">
+          {notificationsEnabled
+            ? 'Всплывающие плашки о вызовах на дуэль, запросах в друзья и сообщениях активны.'
+            : 'Режим "Не беспокоить" активен: все всплывающие плашки и оповещения отключены.'}
+        </p>
+      </div>
+
       {/* Кнопка сброса базы перед показом / жюри */}
       <div className="card p-4 space-y-2 border-red-200 bg-red-50/30">
         <div className="text-xs font-bold text-red-800 flex items-center gap-1.5">
@@ -2558,17 +2720,21 @@ export default function App() {
           })}
         </nav>
 
-        {/* Всплывающий тост-уведомление */}
-        {toast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-[90%] sm:max-w-[410px] w-full px-3 animate-slide pointer-events-auto">
-            <div className={`p-3 rounded-2xl shadow-2xl flex items-center justify-between gap-3 border ${
-              theme === 'dark' ? 'bg-[#1C1C20] border-orange-500/50 text-white' : 'bg-stone-900 border-stone-800 text-white'
+        {/* Всплывающий тост-уведомление (строго внутри контура приложения) */}
+        {notificationsEnabled && toast && (
+          <div className="absolute top-3 left-3 right-3 z-[100] animate-slide pointer-events-auto">
+            <div className={`p-2.5 rounded-2xl shadow-2xl flex items-center justify-between gap-2.5 border backdrop-blur-md ${
+              theme === 'dark' ? 'bg-[#1C1C20]/95 border-orange-500/50 text-white shadow-black/60' : 'bg-stone-900/95 border-stone-800 text-white'
             }`}>
-              <div className="flex items-center gap-2 text-xs font-medium truncate">
-                <Bell size={16} className="text-orange-500 shrink-0 animate-bounce"/>
+              <div className="flex items-center gap-2 text-xs font-semibold truncate flex-1 min-w-0">
+                <Bell size={15} className="text-orange-500 shrink-0 animate-bounce"/>
                 <span className="truncate">{toast}</span>
               </div>
-              <button onClick={() => setToast(null)} className="text-stone-400 hover:text-white p-1">
+              <button
+                onClick={() => setToast(null)}
+                className="text-stone-400 hover:text-white p-1 rounded-lg hover:bg-white/10 shrink-0"
+                title="Закрыть"
+              >
                 <X size={14}/>
               </button>
             </div>
@@ -2596,6 +2762,29 @@ export default function App() {
                   className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
                 >
                   <X size={18}/>
+                </button>
+              </div>
+
+              {/* Переключатель режима уведомлений */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-stone-100 dark:bg-[#151518] border border-stone-200/60 dark:border-[#2C2C34]">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-2 rounded-xl ${notificationsEnabled ? 'bg-orange-500/10 text-orange-500' : 'bg-stone-200 dark:bg-stone-800 text-stone-400'}`}>
+                    {notificationsEnabled ? <Bell size={16}/> : <BellOff size={16}/>}
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold">{notificationsEnabled ? 'Уведомления включены' : 'Режим "Не беспокоить"'}</div>
+                    <div className="text-[10px] text-stone-400">{notificationsEnabled ? 'Всплывающие плашки и звуки активны' : 'Все всплывающие окна и звуки отключены'}</div>
+                  </div>
+                </div>
+                <button
+                  onClick={toggleNotifications}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
+                    notificationsEnabled
+                      ? 'gradient-terra text-white'
+                      : 'bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-300'
+                  }`}
+                >
+                  {notificationsEnabled ? 'ВКЛ' : 'ВЫКЛ'}
                 </button>
               </div>
 

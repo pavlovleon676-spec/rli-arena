@@ -77,7 +77,8 @@ const INITIAL_STATE = {
       profileGroup: 'Политех',
       createdAt: Date.now() - 1800000
     }
-  ]
+  ],
+  mutedUsers: {}
 };
 
 function loadDb() {
@@ -210,7 +211,8 @@ export function createApiMiddleware() {
           myDuelInvites,
           activeBattle,
           finishedBattle,
-          chatMessages: (db.chatMessages || []).slice(-60)
+          chatMessages: (db.chatMessages || []).slice(-60),
+          mutedUsers: db.mutedUsers || {}
         }));
       }
 
@@ -864,12 +866,33 @@ ${trimmedText}
           return res.end(JSON.stringify({ error: 'Пустое сообщение' }));
         }
 
+        const senderLower = (from || '').trim().toLowerCase();
+        db.mutedUsers = db.mutedUsers || {};
+        if (db.mutedUsers[senderLower] && db.mutedUsers[senderLower] > Date.now()) {
+          const remainingMin = Math.max(1, Math.ceil((db.mutedUsers[senderLower] - Date.now()) / 60000));
+          res.statusCode = 403;
+          return res.end(JSON.stringify({
+            error: `Вы временно заглушены Советом Лицея за нарушение порядка. Осталось ${remainingMin} мин.`
+          }));
+        }
+
+        // Защита от спама повторениями букв (например, "ааааа", "......")
+        if (/(.)\1{4,}/i.test(trimmed)) {
+          res.statusCode = 400;
+          return res.end(JSON.stringify({ error: 'Пожалуйста, не спамьте повторяющимися символами.' }));
+        }
+
+        if (trimmed.length > 300) {
+          res.statusCode = 400;
+          return res.end(JSON.stringify({ error: 'Сообщение слишком длинное (макс. 300 символов).' }));
+        }
+
         if (PROFANITY_REGEX.test(trimmed)) {
           res.statusCode = 400;
           return res.end(JSON.stringify({ error: 'Сообщение содержит некорректные выражения (Кодекс этики РЛИ).' }));
         }
 
-        const sender = db.users.find(u => u.name.toLowerCase() === (from || '').toLowerCase());
+        const sender = db.users.find(u => u.name.toLowerCase() === senderLower);
         const newMsg = {
           id: Date.now(),
           from: from || 'Лицеист',
@@ -886,6 +909,70 @@ ${trimmedText}
         }
         saveDb(db);
         return res.end(JSON.stringify({ ok: true, message: newMsg }));
+      }
+
+      // ============================================================
+      // 14. ЗАГЛУШИТЬ / МУТ УЧАСТНИКА (POST /api/chat/mute)
+      // ============================================================
+      if (pathname === '/api/chat/mute' && req.method === 'POST') {
+        const { admin, targetUser, durationMin = 15 } = payload;
+        const isAdmin = (admin || '').trim().toLowerCase() === 'леонид' || (admin || '').trim().toLowerCase() === 'admin';
+        if (!isAdmin) {
+          res.statusCode = 403;
+          return res.end(JSON.stringify({ error: 'Только Совет Лицея (Леонид) имеет право выносить мут.' }));
+        }
+
+        const targetLower = (targetUser || '').trim().toLowerCase();
+        if (!targetLower) {
+          res.statusCode = 400;
+          return res.end(JSON.stringify({ error: 'Не указан нарушитель' }));
+        }
+
+        db.mutedUsers = db.mutedUsers || {};
+        const muteUntil = Date.now() + durationMin * 60 * 1000;
+        db.mutedUsers[targetLower] = muteUntil;
+
+        // Штраф ELO за токсичность (-25 ELO)
+        const targetObj = db.users.find(u => u.name.toLowerCase() === targetLower);
+        if (targetObj) {
+          targetObj.elo = Math.max(100, (targetObj.elo || 500) - 25);
+        }
+
+        // Системное сервисное сообщение в чат
+        db.chatMessages = db.chatMessages || [];
+        db.chatMessages.push({
+          id: Date.now(),
+          from: 'Совет Лицея',
+          to: 'all',
+          text: `🛡️ Участник ${targetUser} заглушен Советом Лицея на ${durationMin} мин. за нарушение порядка (-25 ELO).`,
+          profileGroup: 'Модерация',
+          createdAt: Date.now(),
+          isSystem: true
+        });
+
+        saveDb(db);
+        return res.end(JSON.stringify({ ok: true, muteUntil }));
+      }
+
+      // ============================================================
+      // 15. УДАЛИТЬ СООБЩЕНИЕ ИЗ ЧАТА (POST /api/chat/delete)
+      // ============================================================
+      if (pathname === '/api/chat/delete' && req.method === 'POST') {
+        const { admin, messageId } = payload;
+        const isAdmin = (admin || '').trim().toLowerCase() === 'леонид' || (admin || '').trim().toLowerCase() === 'admin';
+        db.chatMessages = db.chatMessages || [];
+        const msg = db.chatMessages.find(m => m.id === messageId);
+        if (!msg) {
+          return res.end(JSON.stringify({ ok: true }));
+        }
+        if (!isAdmin && (msg.from || '').toLowerCase() !== (admin || '').toLowerCase()) {
+          res.statusCode = 403;
+          return res.end(JSON.stringify({ error: 'Недостаточно прав' }));
+        }
+
+        db.chatMessages = db.chatMessages.filter(m => m.id !== messageId);
+        saveDb(db);
+        return res.end(JSON.stringify({ ok: true }));
       }
 
       return next();
