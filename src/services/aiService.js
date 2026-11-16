@@ -8,10 +8,10 @@ import { addLog } from './storageSync';
 
 export function getApiKey() {
   const localKey = localStorage.getItem('RLI_GEMINI_KEY');
-  if (localKey && localKey.trim().length > 10) return localKey.trim();
+  if (localKey && localKey.trim().length > 15) return localKey.trim();
 
   const envKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (envKey && envKey.trim().length > 10 && envKey.trim().startsWith('AIzaSy')) return envKey.trim();
+  if (envKey && envKey.trim().length > 15) return envKey.trim();
 
   return '';
 }
@@ -518,16 +518,19 @@ ${rawText}
   }
 }`;
 
-    const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     for (const model of models) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
 
         const resp = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': apiKey
+          },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { responseMimeType: 'application/json' }
@@ -833,17 +836,20 @@ export async function testGeminiPing(overrideKey) {
   if (!apiKey) return { ok: false, message: 'API-ключ не задан', ms: 0 };
 
   const start = performance.now();
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+  const models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
   for (const model of models) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
       const resp = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'Ответь одним словом: Работает' }] }]
         }),
